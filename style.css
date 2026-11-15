@@ -1,0 +1,52 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f4f4f2; --panel: #fff; --text: #333; --head: #222; --muted: #777;
+  --border: #ccc; --rule: #ddd; --link: #2b6cb0; --th: #eee; --code: #f4f4f2; --pre: #f8f8f6;
+}
+
+body { margin: 0; font: 14px/1.5 Arial, Helvetica, sans-serif; color: var(--text); background: var(--bg); }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+header { padding: 0.7em 1.5em; font-size: 1.5em; font-weight: bold; border-bottom: 1px solid var(--border); }
+header a { color: var(--head); }
+footer { max-width: 90em; margin: 0 auto 2em; padding: 0 1.5em; font-size: 0.86em; color: var(--muted); text-align: center; }
+
+#wrap { display: flex; align-items: flex-start; max-width: 90em; margin: 0 auto; }
+nav { flex: 0 0 14em; padding: 1em 1em 1em 1.5em; }
+nav ul { list-style: none; margin: 0; padding: 0; }
+nav li { margin: 0.25em 0; }
+nav li ul { margin: 0.2em 0 0.5em 1em; font-size: 0.93em; }
+nav .here > a { font-weight: bold; color: var(--head); }
+main { flex: 1; min-width: 0; overflow-x: auto; margin: 1em 1em 1.5em 0; padding: 0.5em 2em 2em; background: var(--panel); border: 1px solid var(--border); }
+
+h1, h2, h3 { color: var(--head); line-height: 1.2; }
+h1 { font-size: 1.9em; }
+h2 { font-size: 1.4em; margin-top: 1.8em; padding-bottom: 0.2em; border-bottom: 1px solid var(--rule); }
+h3 { font-size: 1.15em; margin-top: 1.5em; }
+
+code, pre { font-family: Consolas, "DejaVu Sans Mono", Menlo, monospace; font-size: 0.93em; }
+code { background: var(--code); padding: 0 0.2em; }
+pre { background: var(--pre); border: 1px solid var(--border); padding: 0.6em 0.8em; overflow: auto; }
+
+table { border-collapse: collapse; margin: 1em 0; }
+th, td { border: 1px solid var(--border); padding: 0.3em 0.7em; text-align: left; vertical-align: top; }
+th { background: var(--th); }
+th, td:not(:last-child) { white-space: nowrap; }
+caption { caption-side: top; text-align: left; font-style: italic; padding-bottom: 0.3em; }
+.right { text-align: right; }
+.center { text-align: center; }
+
+@media (max-width: 55em) {
+  #wrap { display: block; }
+  main { margin: 0 0 1.5em; border-width: 1px 0; padding: 0.5em 1em 2em; overflow-x: auto; }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d0d0d; --panel: #0d0d0d; --text: #c9c9c9; --head: #fff; --muted: #777;
+    --border: #3a3a3a; --rule: #2a2a2a; --link: #e6a23c; --th: #1c1c1c; --code: #1c1c1c; --pre: #151515;
+  }
+  main { border-color: transparent; }
+  code { color: #9ad29a; }
+}
