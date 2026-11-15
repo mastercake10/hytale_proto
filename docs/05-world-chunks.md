@@ -43,16 +43,66 @@ bound: client
 summary: Compressed chunk section data
 columns: Offset | Field Name | Field Type | Notes
 0  | Null bits      | `u8`         | bit0 local light, bit1 global light, bit2 data
-1  | `x`            | `i32`
-5  | `y`            | `i32`
-9  | `z`            | `i32`
+1  | `x`            | `i32`        | Section coordinate, not block coordinate
+5  | `y`            | `i32`        | Section coordinate, not block coordinate
+9  | `z`            | `i32`        | Section coordinate, not block coordinate
 13 | `local_light`  | `i32` offset | Relative to byte 25
 17 | `global_light` | `i32` offset | Relative to byte 25
 21 | `data`         | `i32` offset | Relative to byte 25
 25 | Variable block | bytes        | Each field is a `VarInt` length followed by bytes
 ```
 
-The section `data` layout is not documented yet.
+`x`, `y` and `z` are section coordinates. The first block in the section is at
+`(x * 32, y * 32, z * 32)`.
+
+### Block section data
+
+The `data` field starts with the block palette, followed by the filler palette
+and the rotation palette. Each palette begins with a `u8` palette type:
+
+```text
+0 Empty     no palette entries and no block array (all air)
+1 HalfByte  up to 16 entries; packed nibbles
+2 Byte      up to 256 entries; one byte per block
+3 Short     up to 65536 entries; one u16 per block
+```
+
+For `HalfByte` and `Byte`, the palette is:
+
+```text
+u16 count
+count x:
+  u8  internal_id
+  i32 external_id
+  u16 block_count
+```
+
+followed by the block array:
+
+- `HalfByte`: 16384 bytes. Each byte holds two nibbles; the high nibble is
+  the even local index and the low nibble is the odd local index.
+- `Byte`: 32768 bytes, one internal id per block.
+
+For `Short`:
+
+```text
+u16 count
+count x:
+  u16 internal_id
+  i32 external_id
+  u16 block_count
+```
+
+followed by 32768 little-endian `u16` internal ids.
+
+The local block index inside a 32×32×32 section is:
+
+```text
+index = ((y & 31) << 10) | ((z & 31) << 5) | (x & 31)
+```
+
+The filler and rotation palettes use the same type byte and palette layout;
+their values are stored in their own palette arrays.
 
 ## ServerSetBlock (140)
 
@@ -80,9 +130,9 @@ A batch of block updates relative to an origin.
 bound: client
 summary: Batched block updates
 columns: Offset | Field Name | Field Type | Notes
-0  | `x`    | `i32`         | Origin
-4  | `y`    | `i32`         | Origin
-8  | `z`    | `i32`         | Origin
+0  | `x`    | `i32`         | Section coordinate
+4  | `y`    | `i32`         | Section coordinate
+8  | `z`    | `i32`         | Section coordinate
 12 | `cmds` | SetBlockCmd[] | `VarInt` count followed by commands
 ```
 
@@ -90,10 +140,13 @@ Each `SetBlockCmd` is 9 bytes:
 
 | Offset | Field Name | Field Type | Notes |
 |-------:|------------|------------|-------|
-|      0 | `index`    | `i16`      |       |
+|      0 | `index`    | `i16`      | Local index inside the 32×32×32 section |
 |      2 | `block_id` | `i32`      |       |
 |      6 | `filler`   | `i16`      |       |
 |      8 | `rotation` | `u8`       |       |
+
+The world position of a command is `origin * 32 + local coordinate`, using the
+same local index formula as `SetChunk`.
 
 ## UpdateBlockDamage (144)
 

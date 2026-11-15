@@ -20,6 +20,7 @@ The notes are incomplete. Gaps are marked with `?` instead of being guessed.
 - [Inventory and active slots](07-inventory-slots.md)
 - [Protocol glossary](08-glossary.md)
 - [Other packets](09-other-packets.md)
+- [Markers and overlays](10-marker-overlays.md)
 
 ## Conventions
 

@@ -29,6 +29,7 @@ code, pre { font-family: Consolas, "DejaVu Sans Mono", Menlo, monospace; font-si
 code { background: var(--code); padding: 0 0.2em; }
 pre { background: var(--pre); border: 1px solid var(--border); padding: 0.6em 0.8em; overflow: auto; }
 
+main img { display: block; max-width: 100%; height: auto; margin: 1em 0 0.4em; border: 1px solid var(--border); }
 table { border-collapse: collapse; margin: 1em 0; }
 th, td { border: 1px solid var(--border); padding: 0.3em 0.7em; text-align: left; vertical-align: top; }
 th { background: var(--th); }

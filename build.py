@@ -2,7 +2,8 @@
 """Build the protocol docs: docs/*.md -> site/*.html. Standard library only.
 
 Supported Markdown: # headings, paragraphs, - and 1. lists (one level),
-fenced code, pipe tables, `code`, **bold**, *italic*, [text](url).
+fenced code, pipe tables, `code`, **bold**, *italic*, [text](url),
+![alt](image) images.
 Extensions: ```packet / ```packets blocks and [[PacketName]] links.
 See README.md for the block syntax.
 """
@@ -218,6 +219,13 @@ class Page:
 
     # ---- rendering -----------------------------------------------------
 
+    def image(self, alt, url):
+        if not re.match(r"^[a-z]+:", url) and not (SRC / url).is_file():
+            fail(self, f"image not found: {url}")
+            return alt
+        return (f'<img src="{html.escape(url, quote=True)}" '
+                f'alt="{html.escape(alt, quote=True)}">')
+
     def link(self, text, url):
         if re.match(r"^[a-z]+:", url):
             return f'<a href="{url}">{text}</a>'
@@ -246,6 +254,7 @@ class Page:
                 continue
             part = html.escape(part, quote=False)
             part = re.sub(r"\[\[(\w+)\]\]", lambda m: self.packet_link(m.group(1)), part)
+            part = re.sub(r"!\[([^\]]*)\]\(([^)\s]+)\)", lambda m: self.image(m.group(1), m.group(2)), part)
             part = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", lambda m: self.link(m.group(1), m.group(2)), part)
             part = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", part)
             part = re.sub(r"(?<![\w*])\*(?!\s)([^*]+?)(?<!\s)\*(?![\w*])", r"<em>\1</em>", part)
@@ -383,6 +392,8 @@ def main():
     for p, body in rendered:
         (OUT / p.out).write_text(render(p, body, site, nav, footer), encoding="utf-8")
     shutil.copy(ROOT / "style.css", OUT / "style.css")
+    if (SRC / "images").is_dir():
+        shutil.copytree(SRC / "images", OUT / "images")
     print(f"{len(pages)} pages, {len(packets)} packets -> {OUT.relative_to(ROOT)}/")
 
 
