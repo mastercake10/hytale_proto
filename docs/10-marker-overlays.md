@@ -46,6 +46,15 @@ The variable block starts at byte 38. `id` is required and is a VarString.
 `name` is an optional VarString. `tags` is an optional dictionary:
 VarInt count followed by that many key/value VarString pairs.
 
+Client behaviour for these fields:
+
+- `id` must be non-empty and unique within the list. Entries with an empty id
+  are not rendered by the tested client.
+- `name` and `tags` may be absent (`-1` offsets). When `name` is absent the
+  client displays `id` as the marker label.
+- An `id` consisting only of spaces renders a blank label; other whitespace or
+  zero-width characters can render as replacement glyphs.
+
 Observed client behavior: `PointShapeType.Block` rendered as a translucent
 block-sized volume with the point `id` shown as a floating label above it.
 

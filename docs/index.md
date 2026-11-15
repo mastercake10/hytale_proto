@@ -21,6 +21,7 @@ The notes are incomplete. Gaps are marked with `?` instead of being guessed.
 - [Protocol glossary](08-glossary.md)
 - [Other packets](09-other-packets.md)
 - [Markers and overlays](10-marker-overlays.md)
+- [Spawn points and position recall](11-spawn-and-recall.md)
 
 ## Conventions
 
