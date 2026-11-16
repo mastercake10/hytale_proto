@@ -117,5 +117,9 @@ Observed client/server behaviour:
   `OpenWindow` and the window id.
 - Moving or teleporting away while the window is open produces `CloseWindow`
   (202) from the server; the container window is validated on position changes.
-- Replaying the same chain from farther than the allowed use distance fails:
-  the server answers with a chain state of `Failed` and sends no window packet.
+- Replaying the same chain from farther than the allowed use distance is
+  processed but fails inside the interaction: the server answers with
+  `SyncInteractionChains` state `NotFinished` and operation states
+  `[Finished, Failed, NotFinished]`, then later cancels the chain with
+  `CancelInteractionChain` (291). No window packet and no position correction
+  are sent.
