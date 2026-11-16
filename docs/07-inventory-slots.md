@@ -110,3 +110,12 @@ columns: Offset | Field Name | Field Type | Notes
 ```
 
 `ItemWithAllMetadata` is the same item structure used by inventory updates.
+Observed client/server behaviour:
+
+- Replaying a captured `SyncInteractionChains` use-chain opens the container when
+  the player is inside normal interaction range; the server answers with
+  `OpenWindow` and the window id.
+- Moving or teleporting away while the window is open produces `CloseWindow`
+  (202) from the server; the container window is validated on position changes.
+- Replaying the same chain from farther than the allowed use distance fails:
+  the server answers with a chain state of `Failed` and sends no window packet.
