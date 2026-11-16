@@ -189,6 +189,24 @@ Before a client chain starts, the server checks at least:
 A slot mismatch cancels the chain and sends a
 [[SetActiveSlot]] correction.
 
+## Use distance validation
+
+Block interactions that reach a block (`SimpleBlockInteraction`, which includes
+container opening) are validated server-side by
+`InteractionValidation.canEntityInteractWithBlock`:
+
+- The distance is measured from the **server's player transform plus eye
+  height** to the block centre.
+- The allowed radius is the held item's interaction config `useDistance` for
+  the current game mode, plus a 2-block buffer.
+- In Creative the radius is also compared against
+  `PlayerCreativeSettings.creativeInteractionDistance`, which the client sends
+  in `SyncPlayerPreferences` (116) at offset `+8` as an `i32`; the server
+  clamps it to `0..128`.
+- `attacker_pos`, `attacker_rot`, `raycast_hit` and `raycast_normal` in
+  `InteractionSyncData` are optional context fields and are not used for this
+  range check. A replayed chain cannot extend reach by filling them in.
+
 ## Queueing
 
 Chains are consumed from a per-player queue. If another chain with blocking
