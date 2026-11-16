@@ -111,8 +111,6 @@ columns: Offset | Field Name | Field Type | Notes
 0 | `id` | `i32` | Window id from `OpenWindow`
 ```
 
-Observed: window id 5 is sent as `05 00 00 00`.
-
 ### InventorySection
 
 ```text
@@ -138,32 +136,21 @@ starts at byte 34.
 34 variable block
 ```
 
-### Chest block variants (observed)
+### Chest item ids
 
-The server picks the container from the block at the target position, not from
-the chest type in the captured chain. A small chain rewritten to a goblin small
-chest's position returns that block's `blockItemId`. One captured chain per
-chest shape (small or large) is therefore enough.
+The container comes from the block at the interaction position, so the item
+id in `window_data` identifies the chest type.
 
-| Item id                              | Shape | Block ids seen          | Opened |
-|--------------------------------------|-------|-------------------------|--------|
-| `Furniture_Crude_Chest_Small`        | small | 3762, 888, 5222         | yes    |
-| `Furniture_Goblin_Chest_Small`       | small | via small chain         | yes    |
-| `Furniture_Crude_Chest_Large`        | large | 3621, 4416, 378         | yes    |
-| `Furniture_Dungeon_Chest_Epic_Large` | large | 4557                    | yes    |
-| `Furniture_Temple_Wind_Chest_Large`  | large | 3684                    | yes (once) |
-| `Furniture_Feran_Chest_Large`        | large | 5594                    | no     |
-| `Furniture_Temple_Light_Chest_Large` | large | 5104                    | no     |
+| Item id                              | Shape |
+|--------------------------------------|-------|
+| `Furniture_Crude_Chest_Small`        | small |
+| `Furniture_Goblin_Chest_Small`       | small |
+| `Furniture_Crude_Chest_Large`        | large |
+| `Furniture_Dungeon_Chest_Epic_Large` | large |
+| `Furniture_Temple_Wind_Chest_Large`  | large |
+| `Furniture_Feran_Chest_Large`        | large |
+| `Furniture_Temple_Light_Chest_Large` | large |
 Observed client/server behaviour:
 
-- Replaying a captured `SyncInteractionChains` use-chain opens the container when
-  the player is inside normal interaction range; the server answers with
-  `OpenWindow` and the window id.
 - Moving or teleporting away while the window is open produces `CloseWindow`
   (202) from the server; the container window is validated on position changes.
-- Replaying the same chain from farther than the allowed use distance is
-  processed but fails inside the interaction: the server answers with
-  `SyncInteractionChains` state `NotFinished` and operation states
-  `[Finished, Failed, NotFinished]`, then later cancels the chain with
-  `CancelInteractionChain` (291). No window packet and no position correction
-  are sent.

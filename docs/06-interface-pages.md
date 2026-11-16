@@ -125,19 +125,6 @@ columns: Offset | Field Name | Field Type | Notes
 |     1 | Data        |
 |     2 | Dismiss     |
 
-Observed bodies (Acknowledge and Data only; Dismiss not captured):
-
-- Acknowledge: `00 00`
-- Data `{"Action":"Confirm"}`: `01 01 14` followed by the 20 UTF-8 bytes of the
-  JSON text.
-
-### Respawn page flow (observed)
-
-After `/kill` the server drops a `CustomPage` (218) whose key ends in
-`RespawnPage`. The client answers with one Acknowledge per dropped page, then
-a Data event with `{"Action":"Confirm"}`. Acknowledges for pages the server
-did not drop were not tested.
-
 ## DismissServersidePage (527)
 
 Closes the current server page. Layout not documented yet.

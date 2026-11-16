@@ -42,22 +42,3 @@ The two forms can therefore disagree: the hashed per-player point and
 The world map spawn marker resolves the same provider and therefore shows the
 same position that `/spawn` would use for that player.
 
-## Movement over unloaded chunks
-
-The server can reject movement into regions whose chunks are not ready and
-teleport the player instead. Observed properties:
-
-- The corrective teleport is a `ClientTeleport` (109) to the player's last
-  valid/saved position.
-- No damage packet (`DamageInfo`, 112) and no death interface page
-  (`SetPage` 216, `CustomPage` 218) accompany it.
-- The player keeps items and state; this is not a death or respawn.
-- It happens while the client is being moved across terrain faster than the
-  server can prepare chunks, and it interrupts whatever transform update was
-  in flight.
-- Its destination is whatever position the server last considered valid, which
-  is normally where the player last stood or logged out.
-
-Because the destination is a stored position rather than a fixed spawn point,
-the result of such a correction depends on server state, not only on the
-movement that triggered it.

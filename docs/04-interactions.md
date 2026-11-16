@@ -205,7 +205,7 @@ container opening) are validated server-side by
   clamps it to `0..128`.
 - `attacker_pos`, `attacker_rot`, `raycast_hit` and `raycast_normal` in
   `InteractionSyncData` are optional context fields and are not used for this
-  range check. A replayed chain cannot extend reach by filling them in.
+  range check.
 
 ## Queueing
 

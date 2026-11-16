@@ -61,25 +61,6 @@ Observed server behavior:
 - While the queue is non-empty, movement packets without an acknowledgement
   can be discarded instead of applied. Movement immediately after a server
   teleport is therefore unreliable until that teleport has been acknowledged.
-- Large single transform jumps are frequently rejected, with the server
-  re-sending the current position. Small successive hops are accepted more
-  reliably than one large jump.
-
-## Position correction on unloaded chunks
-
-When a movement update places the player in a region whose chunks are not
-loaded (or not yet ready), the server may correct the position instead of
-accepting it:
-
-- The correction arrives as a normal `ClientTeleport` (109).
-- The destination is the player's last valid/saved position.
-- No `DamageInfo` (112) and no interface page (`SetPage` 216 / `CustomPage`
-  218) are sent for this correction, so it is not a death or respawn.
-- The correction can occur in the middle of a sequence of teleports and
-  supersedes the transform update that was in flight.
-
-Because the destination depends on the last saved position, the same movement
-can end at different places depending on what the server last stored.
 
 ## Pause state
 

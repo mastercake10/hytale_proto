@@ -19,9 +19,6 @@ The client uses stage-specific packet handlers. Display/UI packets, including
 accepted while the client is in the Playing stage. Sending them during
 `SettingUp` is rejected by the client.
 
-Observed in one session: a `ClientTeleport` (109) sent before the client
-reached Playing prevented the join from completing.
-
 `ClientReady` (105) is sent by the client during setup and reports chunk or
 gameplay readiness flags. It does not by itself mean the client has switched
 to Playing.
