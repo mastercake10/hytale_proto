@@ -17,6 +17,16 @@ ROOT = Path(__file__).resolve().parent
 SRC, OUT = ROOT / "docs", ROOT / "site"
 BOUND = {"client": "Client", "server": "Server", "both": "Both", "?": "?"}
 
+# Sidebar: group -> (page name, short label). Names are the file names without
+# the numeric prefix; "packets" is the generated packet index.
+NAV = [
+    ("Start", [("index", "Overview"), ("framing", "Framing"), ("auth", "Auth"), ("glossary", "Glossary")]),
+    ("Player", [("movement", "Movement"), ("spawn-and-recall", "Spawn"), ("interactions", "Interactions"),
+                ("inventory-slots", "Inventory"), ("interface-pages", "Interface")]),
+    ("World", [("world-chunks", "Chunks"), ("marker-overlays", "Markers")]),
+    ("Reference", [("packets", "Packet index"), ("other-packets", "Other packets")]),
+]
+
 errors = []
 packets = {}  # name -> {id, name, bound, summary, page, anchor}
 
@@ -320,15 +330,19 @@ def index_body(page):
     )
 
 
-def render(page, body, site, nav_pages, footer):
+def render(page, body, site, nav, footer):
     items = []
-    for p in nav_pages:
-        here = p is page
-        sub = ""
-        if here and p.sections:
-            sub = "<ul>" + "".join(f'<li><a href="#{a}">{page.inline(t)}</a></li>' for t, a in p.sections) + "</ul>"
-        cls = ' class="here"' if here else ""
-        items.append(f'<li{cls}><a href="{p.out}">{html.escape(p.navtitle)}</a>{sub}</li>')
+    for group, members in nav:
+        links = []
+        for p in members:
+            here = p is page
+            sub = ""
+            if here and p.sections:
+                sub = "<ul>" + "".join(f'<li><a href="#{a}">{page.inline(t)}</a></li>' for t, a in p.sections) + "</ul>"
+            cls = ' class="here"' if here else ""
+            links.append(f'<li{cls}><a href="{p.out}">{html.escape(p.navtitle)}</a>{sub}</li>')
+        items.append(f'<li class="group"><span class="label">{html.escape(group)}</span><ul>'
+                     + "".join(links) + "</ul></li>")
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -369,12 +383,26 @@ def main():
         p.parse()
         p.navtitle = p.title
     site = pages[0].title
-    pages[0].navtitle = "Overview"
 
     index = Page(SRC / "packets.md")
-    index.title = index.navtitle = "Packet index"
+    index.title = "Packet index"
     by_src["packets.md"] = index  # lets pages link to the generated index
-    nav = [pages[0], index] + pages[1:]
+    by_name = {p.name: p for p in pages + [index]}
+    nav, listed = [], set()
+    for group, items in NAV:
+        members = []
+        for name, label in items:
+            p = by_name.get(name)
+            if p is None:
+                errors.append(f"NAV: unknown page '{name}'")
+                continue
+            p.navtitle = label
+            members.append(p)
+            listed.add(name)
+        nav.append((group, members))
+    for name in by_name:
+        if name not in listed:
+            errors.append(f"{name}: missing from NAV in build.py")
 
     rendered = [(p, p.body()) for p in pages] + [(index, index_body(index))]
     note = SRC / "_footer.md"

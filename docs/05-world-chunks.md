@@ -161,4 +161,10 @@ summary: Block damage/progress display
 
 - The server may resend chunks after a new session or a major world update.
 - Height data can arrive before or after the corresponding block sections.
+- Observed: block sections are streamed around the player's height. In a 3×3
+  block of columns at about y 242, section 0 (y 0..31) was absent while
+  sections 1..9 were present. At about y 118 in the same area all 10 were present.
+- Observed: after a long move, sections keep arriving for several seconds. A
+  column can have its height data before all of its sections. Moving again
+  before the sections around the stop arrive leaves those blocks unknown.
 - Caching height columns by chunk coordinate avoids repeated decompression.

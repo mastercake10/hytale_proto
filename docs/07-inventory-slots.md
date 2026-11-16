@@ -100,6 +100,19 @@ columns: Offset | Field Name | Field Type | Notes
 17 | Variable block  | bytes |
 ```
 
+### CloseWindow (202)
+
+Client to server. The body is not compressed.
+
+```packet
+bound: server
+summary: Close an open container window
+columns: Offset | Field Name | Field Type | Notes
+0 | `id` | `i32` | Window id from `OpenWindow`
+```
+
+Observed: window id 5 is sent as `05 00 00 00`.
+
 ### InventorySection
 
 ```text
@@ -110,6 +123,37 @@ columns: Offset | Field Name | Field Type | Notes
 ```
 
 `ItemWithAllMetadata` is the same item structure used by inventory updates.
+
+### ItemWithAllMetadata
+
+Observed layout, checked against three captured container windows (142, 1272
+and 1797 items). Offsets are from the start of the item; the variable block
+starts at byte 34.
+
+```text
+0  null bits            u8   bit0 metadata present
+1  quantity             i32
+26 item id offset       i32  relative to byte 34; item id is a VarString
+30 metadata offset      i32  relative to byte 34; valid when null bit 0 is set
+34 variable block
+```
+
+### Chest block variants (observed)
+
+The server picks the container from the block at the target position, not from
+the chest type in the captured chain. A small chain rewritten to a goblin small
+chest's position returns that block's `blockItemId`. One captured chain per
+chest shape (small or large) is therefore enough.
+
+| Item id                              | Shape | Block ids seen          | Opened |
+|--------------------------------------|-------|-------------------------|--------|
+| `Furniture_Crude_Chest_Small`        | small | 3762, 888, 5222         | yes    |
+| `Furniture_Goblin_Chest_Small`       | small | via small chain         | yes    |
+| `Furniture_Crude_Chest_Large`        | large | 3621, 4416, 378         | yes    |
+| `Furniture_Dungeon_Chest_Epic_Large` | large | 4557                    | yes    |
+| `Furniture_Temple_Wind_Chest_Large`  | large | 3684                    | yes (once) |
+| `Furniture_Feran_Chest_Large`        | large | 5594                    | no     |
+| `Furniture_Temple_Light_Chest_Large` | large | 5104                    | no     |
 Observed client/server behaviour:
 
 - Replaying a captured `SyncInteractionChains` use-chain opens the container when

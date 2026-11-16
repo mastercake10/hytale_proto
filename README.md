@@ -1,5 +1,7 @@
 # Hytale protocol docs
 
+Published at <https://mastercake10.github.io/hytale_proto>.
+
 Markdown in `docs/`, one script, static HTML in `site/`. No dependencies
 besides Python 3, no JavaScript in the output.
 
@@ -24,8 +26,12 @@ Once, in the repository: Settings -> Pages -> Source: "GitHub Actions".
 ## Pages
 
 `docs/index.md` is the front page; its `# title` is the site title. Other
-pages are ordered by their numeric prefix: `03-movement.md` becomes
-`movement.html`. The sidebar and the packet index are generated.
+pages are named by their numeric prefix: `03-movement.md` becomes
+`movement.html`. The packet index is generated.
+
+The sidebar comes from `NAV` in `build.py`: four groups (Start, Player, World,
+Reference) with short labels. Every page must be listed there; the build fails
+otherwise. Add a page by adding its name and label to `NAV`.
 `docs/_footer.md` is the notice shown at the bottom of every page.
 
 `style.css` follows the browser: light by default, dark when it prefers dark.
