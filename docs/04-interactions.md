@@ -258,6 +258,27 @@ Links are one-way: the destination is the block's own warp, so using A lands at
 B without B gaining a route back to A. A teleporter whose state is not `default`
 is reset to its default variant when used.
 
+## Breaking blocks
+
+`BreakBlockInteraction` is a `SimpleBlockInteraction` whose config decides what a
+swing may break:
+
+- `SoftOnly` refuses everything that is not a soft block, whatever is held.
+- `Tool` + `MatchTool` name the tool the block wants; a held item that does not
+  match fails the damage step.
+- The world config can forbid breaking a block type outright
+  (`WorldConfig.isBlockBreakingAllowed`).
+
+With nothing in hand the interaction is still allowed to run
+(`heldItemStack == null`), but it falls back to the plain block-damage path, so
+only blocks that accept a bare hand (soft blocks) actually give way. Stone and
+ore need a matching tool.
+
+A held tool also carries a `BreakShape` (from `ItemTool`), so one swing damages
+every block the shape selects around the target — a pickaxe breaks several
+blocks at once, not one. In Creative the server skips the damage step entirely
+and removes the selected blocks with no drops.
+
 ## States
 
 | Value | Name        |
