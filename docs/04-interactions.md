@@ -207,6 +207,29 @@ container opening) are validated server-side by
   `InteractionSyncData` are optional context fields and are not used for this
   range check.
 
+## Root interaction resolution
+
+Start validation resolves a *root interaction id* from the chain's
+`interaction_type` and the held item (`InteractionContext.getRootInteractionId`),
+then looks it up in the loaded assets. Ids travel in `InteractionSyncData` as
+`root_interaction` (offset `11`) and `entered_root_interaction` (offset `23`).
+
+The lookup has two different failure paths, which look different on the wire:
+
+- **Blocked or missing for this type** (`getRootInteractionId` returns null, or
+  the root is disabled by world config): the chain is rejected *immediately*
+  with [[CancelInteractionChain]] (291). The same happens for a chain id at or
+  below `lastClientChainId`, a forked chain started by the client, missing
+  chain data, or a negative/zero chain id.
+- **Id not found in the asset set** (`RootInteraction.getRootInteractionOrUnknown`
+  returns null): the server does not start and does not reject. The start packet
+  stays queued and the client receives 291 only after the operation timeout,
+  roughly 3 s later. An id captured from an older game build reaches this path.
+
+A chain that is never answered is therefore usually a stale root interaction id,
+not a distance or slot problem: those two produce an immediate cancel and a
+[[SetActiveSlot]] correction respectively.
+
 ## Queueing
 
 Chains are consumed from a per-player queue. If another chain with blocking
