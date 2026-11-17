@@ -237,6 +237,27 @@ rules is active, a new chain can be queued. A chain that waits too long in the
 queue is canceled with [[CancelInteractionChain]]
 (291).
 
+## Teleporter blocks
+
+A teleporter block carries a `Teleporter` component (a warp) and a
+`TeleporterInteraction` block interaction (`SimpleBlockInteraction`). Travel is
+therefore an ordinary block interaction — the client sends a chain aiming at the
+block, and the server does the rest:
+
+- `interactWithBlock` fails when the block entity has no `Teleporter`, when the
+  player is still waiting for the client to be ready, or when the entity already
+  carries `Teleport`, `PendingTeleport` or `UsedTeleporter`.
+- On success it adds `Teleport` (destination from `teleporter.toTeleport(...)`)
+  and `UsedTeleporter(worldUuid, position, clearoutXZ = 1.3, clearoutY = 2.5)`.
+  Those defaults mean the player must move at least 1.3 blocks in XZ or 2.5 in Y
+  away from the arrival point before any teleporter can be used again.
+- The move reaches the client as `ClientTeleport` (109), the same packet as any
+  other server-side teleport.
+
+Links are one-way: the destination is the block's own warp, so using A lands at
+B without B gaining a route back to A. A teleporter whose state is not `default`
+is reset to its default variant when used.
+
 ## States
 
 | Value | Name        |
