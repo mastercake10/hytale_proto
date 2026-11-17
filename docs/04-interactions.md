@@ -367,6 +367,14 @@ difference: the chain data carries the target's network id instead of a block
 position.
 
 - `data.entity_id` = the target's network id, `data.block_position` absent.
+- **The target the server acts on is the `hit_entities` list in the interaction
+  sync data**, not the chain data: `ClientSourcedSelector` reads
+  `clientState.hitEntities` and resolves each entry by `networkId`
+  (`SelectedHitEntity`: network id, hit location, position, body rotation). A
+  chain that only carries `data.entity_id` is accepted and does nothing.
+  Observed: the client only puts `hit_entities` on some operations of the chain
+  (the `operation_base_index = 5` updates in the capture), so a replay has to
+  rewrite both the chain data and those entries.
 - Same interaction type (`Primary`), same cadence: one update every ~16.7 ms for
   about 200 ms, then a final update with `state = 0`.
 - The chain carries the same hand validation (active hotbar slot, item, utility
