@@ -321,6 +321,13 @@ for as long as the button is held. `interaction_data` entries whose
 `block_position` is absent belong to the item's other operations; only the entry
 for the placement root carries the filled cell.
 
+After those three the client sends one more update whose only entry is the
+item's own root with `state = 0` (Finished). That update matters: without it the
+chain stays pending, and while it is pending the server's interruption rules
+(`applyRules` → `validateBlocked`) refuse **every** later `Secondary` interaction
+for that player, including their own placements, until they reconnect. The same
+silence applies — nothing is cancelled, the new chains are simply not run.
+
 Note: a client packet that is dropped before the chain is created produces no
 `CancelInteractionChain` (291) at all — silence is not acceptance.
 
