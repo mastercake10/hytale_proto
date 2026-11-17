@@ -307,6 +307,23 @@ The server side (`PlaceBlockInteraction`) reads the filled cell, face, rotation
 and placed block id from the interaction **sync data** of that follow-up update,
 and the support block from the chain data, then validates reach and places.
 
+One placement is **three** client packets, all with the same `chain_id` and sent
+about 16 ms apart (observed for a single right-click):
+
+| # | `initial` | content |
+|--:|-----------|---------|
+| 1 | true      | secondary interaction, item in hand, support block in the chain data |
+| 2 | false     | placement root, sync `state = 4` (NotFinished) |
+| 3 | false     | placement root, sync `state = 0` (Finished) |
+
+After that the client keeps sending low-cost updates for the item's root (state 4)
+for as long as the button is held. `interaction_data` entries whose
+`block_position` is absent belong to the item's other operations; only the entry
+for the placement root carries the filled cell.
+
+Note: a client packet that is dropped before the chain is created produces no
+`CancelInteractionChain` (291) at all — silence is not acceptance.
+
 ```packet
 summary: Secondary on a block item; support position in chain data, filled cell in sync data
 ```
