@@ -279,6 +279,38 @@ every block the shape selects around the target — a pickaxe breaks several
 blocks at once, not one. In Creative the server skips the damage step entirely
 and removes the selected blocks with no drops.
 
+## Placing a block
+
+Placing is a `Secondary` interaction on a **block item** in hand, and it takes
+two packets (observed with `Rock_Stone_Cobble`):
+
+1. The initial chain: `interaction_type = Secondary` (1), `initial = true`,
+   `item_in_hand_id` set, `active_hotbar_slot`/`equip_slot` set.
+   - `data.block_position` = the **clicked support block**, not the cell being
+     filled.
+   - Its `interaction_data` entries carry the item's secondary root (observed
+     `3295`) and `block_face` on the entry that matches the clicked support
+     (for example `1` = Up when placing on top of it).
+2. Follow-up chain, same `chain_id`, `initial = false`, whose
+   `interaction_data` names the placement root (observed `70`):
+   - `block_position` = the **cell that receives the block** (support block
+     offset by the face direction).
+   - `block_face` = the same face.
+   - `placed_block_id` = the block type id being placed (`943` for the cobble
+     above).
+   - `block_rotation` is present (all zeroes for an unrotated block).
+
+So the position in the chain data and the position in the sync data are
+different cells: the clicked block versus the filled cell.
+
+The server side (`PlaceBlockInteraction`) reads the filled cell, face, rotation
+and placed block id from the interaction **sync data** of that follow-up update,
+and the support block from the chain data, then validates reach and places.
+
+```packet
+summary: Secondary on a block item; support position in chain data, filled cell in sync data
+```
+
 ## States
 
 | Value | Name        |
