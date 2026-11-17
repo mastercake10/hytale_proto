@@ -283,11 +283,21 @@ to the held item's Primary root (from `UpdateItems` (54), whose `ItemBase` carri
 `interactions: type -> root id`, or simply learned from that item's first swing).
 
 One hit is the **whole chain**, not just its first packet: the initial update
-starts the swing and the following updates carry the charge ramp
-(`progress` rising). The packets must be paced (~4 ms apart, one chain per hit);
-blasting a whole captured chain at once makes the server drop it. A non-initial
-packet whose chain is not live is cancelled outright, which is why a replay sent
-too fast is silently wasted.
+starts the swing and the following updates carry the charge ramp (`progress`
+rising). A capture of a real hold shows the exact cadence:
+
+- one update every **~12 ms**, all with the same `chain_id`, for **~270 ms**
+  (about 20 updates) - that is one held swing
+- the chain is closed with a final update whose state is `0` (Finished)
+- the next swing starts a **new chain id** about **84 ms** later
+
+Matching that cadence is what makes a replay damage a block. Off-cadence
+replays are accepted with no error and do nothing, and a chain that is never
+closed stays open on the server: every later chain then queues behind it and
+times out, so nothing breaks at all until the player reconnects. The server
+validates the claimed hand (active hotbar slot + item, utility and tools slots)
+against its own state, and every update after the first must arrive while the
+chain is live, otherwise it is cancelled.
 
 A held tool also carries a `BreakShape` (from `ItemTool`), so one swing damages
 every block the shape selects around the target — a pickaxe breaks several
