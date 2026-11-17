@@ -258,6 +258,12 @@ Links are one-way: the destination is the block's own warp, so using A lands at
 B without B gaining a route back to A. A teleporter whose state is not `default`
 is reset to its default variant when used.
 
+Observed client behaviour: for about a second after the arrival `ClientTeleport`
+(109), the server keeps re-sending the same destination with a fresh teleport id,
+and a position the client sets in that window is corrected back. A client that
+wants to keep moving after a teleport therefore has to wait for that stream to
+stop (roughly 1 s) before sending its own movement.
+
 ## States
 
 | Value | Name        |
