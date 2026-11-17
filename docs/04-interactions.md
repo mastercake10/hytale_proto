@@ -274,11 +274,20 @@ With nothing in hand the interaction is still allowed to run
 only blocks that accept a bare hand (soft blocks) actually give way. Stone and
 ore need a matching tool.
 
-Root interaction ids belong to the **item**, not to the interaction type: a chain
-captured while holding one tool is not valid for another. Observed: a chain
-captured with a crude pickaxe replayed while holding an iron pickaxe produced no
-break and no cancel, while the player's own swings with the iron pickaxe worked
-and re-capturing with it fixed the replay.
+Root interaction ids belong to the **item**, not to the interaction type. In the
+swing chain only the **Primary root of the item in hand** differs between items
+(observed: iron pickaxe `3031`, thorium pickaxe `3025`, bare hand `3687`); the
+operations that follow — `1273`, `1274`, `1275`, `5444` — are the shared swing
+skeleton. A replay therefore works for any tool when that one root id is swapped
+to the held item's Primary root (from `UpdateItems` (54), whose `ItemBase` carries
+`interactions: type -> root id`, or simply learned from that item's first swing).
+
+One hit is the **whole chain**, not just its first packet: the initial update
+starts the swing and the following updates carry the charge ramp
+(`progress` rising). The packets must be paced (~4 ms apart, one chain per hit);
+blasting a whole captured chain at once makes the server drop it. A non-initial
+packet whose chain is not live is cancelled outright, which is why a replay sent
+too fast is silently wasted.
 
 A held tool also carries a `BreakShape` (from `ItemTool`), so one swing damages
 every block the shape selects around the target — a pickaxe breaks several
