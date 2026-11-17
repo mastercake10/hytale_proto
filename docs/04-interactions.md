@@ -274,6 +274,12 @@ With nothing in hand the interaction is still allowed to run
 only blocks that accept a bare hand (soft blocks) actually give way. Stone and
 ore need a matching tool.
 
+Root interaction ids belong to the **item**, not to the interaction type: a chain
+captured while holding one tool is not valid for another. Observed: a chain
+captured with a crude pickaxe replayed while holding an iron pickaxe produced no
+break and no cancel, while the player's own swings with the iron pickaxe worked
+and re-capturing with it fixed the replay.
+
 A held tool also carries a `BreakShape` (from `ItemTool`), so one swing damages
 every block the shape selects around the target — a pickaxe breaks several
 blocks at once, not one. In Creative the server skips the damage step entirely
