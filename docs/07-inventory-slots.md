@@ -32,6 +32,31 @@ Observed server behavior:
 - Active slot changes that are part of a normal interaction are represented by
   interaction chains, not by a standalone slot packet.
 
+## Selecting a hotbar slot
+
+Changing the active hotbar slot (the client's number-key / scroll selection) is
+an interaction, not a `SetActiveSlot`. The server defines a
+`ChangeActiveSlotInteraction` (root `*Default_Swap`) whose `TargetSlot` is
+validated to the range `0..8`; running it calls `setActiveSlot` on the hotbar
+component and forks a `SwapTo` interaction.
+
+Observed on the wire, a key press emits an interaction-chain update with:
+
+- `interaction_type` = `SwapFrom` (14) — a `SwapTo` (13) chain also occurs.
+- `active_hotbar_slot` = the slot being **left** (the previous selection).
+- `data.target_slot` (the `InteractionChainData` field at offset 45) = the
+  **new** slot.
+
+So the newly selected slot is `data.target_slot` on a swap chain, not
+`active_hotbar_slot`. On every non-swap interaction `active_hotbar_slot` already
+is the current slot. Example sequence for pressing `1` then `8` while the
+selection moves 7 -> 0 -> 7:
+
+```
+it=SwapFrom active_hotbar_slot=7 target_slot=0
+it=SwapFrom active_hotbar_slot=0 target_slot=7
+```
+
 ## Validation coupling
 
 [Interaction-chain](04-interactions.md#chain-update) start packets embed:
