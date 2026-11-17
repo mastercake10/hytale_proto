@@ -40,6 +40,15 @@ an interaction, not a `SetActiveSlot`. The server defines a
 validated to the range `0..8`; running it calls `setActiveSlot` on the hotbar
 component and forks a `SwapTo` interaction.
 
+A client can therefore trigger a slot change itself by sending that
+interaction (`SyncInteractionChains` (290) with `interaction_type` `SwapTo`
+(13) or `SwapFrom` (14) and `data.target_slot` set to the wanted slot); no
+`SetActiveSlot` packet is involved, so it is not rejected as
+`hotbarChangeWithoutInteraction`. Observed client behaviour: after the server
+takes such a swap the client's own chain updates keep reporting the previous
+`active_hotbar_slot` for a short while, so a reader must not treat the first
+report after a swap as authoritative.
+
 Observed on the wire, a key press emits an interaction-chain update with:
 
 - `interaction_type` = `SwapFrom` (14) — a `SwapTo` (13) chain also occurs.
