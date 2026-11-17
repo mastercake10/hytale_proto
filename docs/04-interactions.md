@@ -360,6 +360,33 @@ Note: a client packet that is dropped before the chain is created produces no
 summary: Secondary on a block item; support position in chain data, filled cell in sync data
 ```
 
+## Attacking an entity
+
+A melee attack on an entity is the **same chain as a block swing** with one
+difference: the chain data carries the target's network id instead of a block
+position.
+
+- `data.entity_id` = the target's network id, `data.block_position` absent.
+- Same interaction type (`Primary`), same cadence: one update every ~16.7 ms for
+  about 200 ms, then a final update with `state = 0`.
+- The chain carries the same hand validation (active hotbar slot, item, utility
+  and tools slots) as any other interaction.
+
+Entity positions come from `EntityUpdates` (161), which is a stream of records:
+
+| part | layout |
+|------|--------|
+| header | `nullBits` u8, `networkId` i32, two i32 offsets (removed, updates) relative to `header + 13` |
+| removed | `VarInt count`, then `count` x i32 network ids |
+| updates | `VarInt count`, then components |
+
+Each component is `VarInt typeId` followed by its body, and **no length prefix** —
+so the stream can only be walked with a size table. The useful ones are fixed
+size: `Transform` (9) is 49 bytes (`nullBits`, position 3 x f64, rotation 3 x
+f32), `MovementStates` (10) 4, `Block` (6) 8, `Prediction` (20) 16, `Mounted` (22)
+47; several flags are zero-length. `NewSpawn` (23) is empty — the record's
+network id is the entity.
+
 ## States
 
 | Value | Name        |
