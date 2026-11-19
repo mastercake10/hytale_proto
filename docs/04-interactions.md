@@ -275,12 +275,26 @@ only blocks that accept a bare hand (soft blocks) actually give way. Stone and
 ore need a matching tool.
 
 Root interaction ids belong to the **item**, not to the interaction type. In the
-swing chain only the **Primary root of the item in hand** differs between items
-(observed: iron pickaxe `3031`, thorium pickaxe `3025`, bare hand `3687`); the
-operations that follow — `1273`, `1274`, `1275`, `5444` — are the shared swing
-skeleton. A replay therefore works for any tool when that one root id is swapped
-to the held item's Primary root (from `UpdateItems` (54), whose `ItemBase` carries
-`interactions: type -> root id`, or simply learned from that item's first swing).
+swing chain the **Primary root of the item in hand** differs between items
+(observed: iron pickaxe `3031`, thorium pickaxe `3025`, copper pickaxe `3031`,
+bare hand `3687`).
+
+The follow-on operations are **not** a single shared skeleton, though: the
+sub-operation shape of the chain also differs by item class. A captured bare-hand
+swing (root `3687`) carries several `interaction_data` ops with varying
+`block_face` and `operation_counter`, while a captured pickaxe swing (root
+`3031`) carries a shorter two-op shape. Replaying a **pickaxe** skeleton while an
+**empty hand or a non-tool item** is held — even with the root id swapped — is
+cancelled with [[CancelInteractionChain]] (291) and builds no damage, because the
+server validates the whole chain against the root it resolved from the held item.
+
+Observed rule: keep one captured skeleton **per interaction class** and pick by
+what is held — a bare-hand/non-tool capture for an empty or non-tool slot, a
+tool capture for a held tool — then rewrite only `chain_id`, `block_position`
+(and `active_hotbar_slot`/`equip_slot`/`item_in_hand_id` to the live hand). With
+the matching skeleton a pickaxe breaks both stone and soft blocks with zero
+cancels; the wrong-class skeleton produces only cancels. (An item's Primary root
+is also listed in `UpdateItems` (54): `ItemBase.interactions: type -> root id`.)
 
 One hit is the **whole chain**, not just its first packet: the initial update
 starts the swing and the following updates carry the charge ramp (`progress`
