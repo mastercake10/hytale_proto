@@ -290,7 +290,7 @@ pickaxe classes:
 | Held item | Op roots the server ran, in chain order |
 |-----------|------------------------------------------|
 | crude / copper / adamantite pickaxe | `2714`, `1273`, `1274`, `1275`, `5641` |
-| hatchet | `2763`, `1164`, `1165`, `1166`, `4361` |
+| hatchet | `2763`, `1164`, `1165`, `1166`, `4361`, `2573` |
 | bare hand | `3376`, `595`, `596`, `2573` (an older build: `3687`, `430`, `431`, `77`) |
 | held block (Soil_Dirt) | `3296` |
 
@@ -316,10 +316,25 @@ Consequences for replay (all observed on the wire):
 - If a **later** op root is stale, the chain runs up to that op and then hangs
   until the timeout. Each replay learns one more op, so a second swing with the
   learned ids completes.
-- The skeleton shape itself does differ by item **kind**, not by class: a tool
-  swing and a bare-hand (or non-tool item) swing are different chains. Replaying
-  the hand shape while a tool is held is cancelled immediately, and vice versa.
-  Keep one capture per kind and swap the op roots.
+- The skeleton shape differs by item **kind** — a tool swing and a bare-hand (or
+  non-tool item) swing are different chains. Replaying the hand shape while a
+  tool is held is cancelled immediately, and vice versa.
+- The skeleton shape also differs **within** the tool kind, because each tool
+  class runs its own attack interaction. Observed: a crude pickaxe runs
+  `Pickaxe_Mine` = `Simple 0.083 -> Parallel[ (0) Simple -> Pickaxe_Block_Break,
+  (1) Selector -> Pickaxe_Mine_Damage, (2) Replace Var Pickaxe_Mine_Effect ]`
+  (5 op roots), while a crude hatchet runs `Hatchet_Chop` =
+  `Simple 0.083 -> Parallel[ (0) Trigger_Explosion + Selector -> Hatchet_Chop_Damage,
+  (1) Simple -> Block_Break, (2) Replace Var Hatchet_Chop_Effect ]`
+  (6 op roots: the generic `Block_Break` adds
+  `2573` = `****Block_Break_Failed_Next_Interactions_1_DefaultValue`).
+  The block-breaking sub-interaction therefore sits at a **different index** in
+  the two chains: op `0` of the parallel for the pickaxe, op `1` for the hatchet.
+  Replaying a pickaxe skeleton while holding a hatchet and only rewriting the op
+  roots leaves the hatchet's block step without the `state 3` + `block_position`
+  "hit this cell" data; the chain still runs to `state 0` and is never
+  cancelled, but no damage is applied (40 swings, `max_progress` 0.0). One
+  captured swing per tool class is needed — swapping op roots is not enough.
 - A `SetActiveSlot` correction or an immediate [[CancelInteractionChain]] (291)
   on the first update means the claimed hand (hotbar slot + item) is wrong; a
   cancel that arrives seconds later is the queue timeout, not the hand claim.
@@ -350,12 +365,16 @@ The ids in `RootInteraction.interactions` do not index the root table — readin
 the same holds for every root sampled — so the op set cannot be read off the root
 graph alone: it also needs the `Interaction` asset table, a separate packet.
 
-Practical rule: a captured skeleton is reusable across items of the same kind
-once the op roots are rewritten positionally, and the mapping is worth caching
+Practical rule: a captured skeleton is reusable across items of the same class
+(two pickaxes, two hatchets) once the op roots are rewritten positionally, and the mapping is worth caching
 per `(item, build)`; detect a build change by hashing the asset table and drop
 the cache when the hash moves. One throwaway swing per item per build recovers
 the ids if the cache is empty: the echo of the first update names the root the
 server resolved.
+
+Mining progress is client-authored: the captured swing carries its own
+`progress` floats (a ramp like `0.0166, 0.0333, 0.05 ...` per update), and the
+server echoes them back unchanged rather than computing them.
 
 A swing that damages blocks also opens **forks**: `BlockDamage` runs the damage
 step per selected block as a forked chain (`new_forks` on the update, later
