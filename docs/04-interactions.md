@@ -280,17 +280,25 @@ server resolves the Primary root from the item *it* has in hand
 The follow-on operations each carry their own root id too, and the whole set
 differs per item.
 
-The ids are **not stable per item class, and not stable across sessions**. Two
-pickaxes of the same class, captured in one session, ran different sets:
+Where the ids come from: set at asset load and delivered to the client as part
+of the asset stream (see [[Interaction root assets]] below), so a client knows
+them before its first swing. They are **stable for a given server build** and
+**change when the server's asset table changes** — comparing captures from two
+different server builds is what makes them look per-session. Same build, three
+pickaxe classes:
 
 | Held item | Op roots the server ran, in chain order |
 |-----------|------------------------------------------|
-| crude pickaxe | `2714`, `1273`, `1274`, `1275`, `5641` |
-| copper pickaxe (capture) | `3031`, `1108`, `1109`, `1110`, `5669` |
-| adamantite pickaxe | same as crude after remap |
+| crude / copper / adamantite pickaxe | `2714`, `1273`, `1274`, `1275`, `5641` |
 | hatchet | `2763`, `1164`, `1165`, `1166`, `4361` |
-| bare hand | `3687`, `430`, `431`, `77` (later `3376`, `595`, `596`, `2573`) |
+| bare hand | `3376`, `595`, `596`, `2573` (an older build: `3687`, `430`, `431`, `77`) |
 | held block (Soil_Dirt) | `3296` |
+
+A capture from an older build carried `3031`, `1108`, `1109`, `1110`, `5669` for
+a pickaxe. The ids are dense indices into the server's root table, so a server
+update reassigns them: `3031` now names `Boar_Ram`, `1108` a mace interaction.
+An old capture therefore does not fail loudly — it points at unrelated roots,
+which is why one skeleton cannot keep its own ids across a server update.
 
 So a captured skeleton can be reused for another item of the same class, but
 every op root has to be rewritten to the ids the server resolves for the item
@@ -315,6 +323,39 @@ Consequences for replay (all observed on the wire):
 - A `SetActiveSlot` correction or an immediate [[CancelInteractionChain]] (291)
   on the first update means the claimed hand (hotbar slot + item) is wrong; a
   cancel that arrives seconds later is the queue timeout, not the hand claim.
+
+### Interaction root assets
+
+Two asset packets carry the ids, both sent once at join:
+
+- `UpdateRootInteractions` (**67**, zstd-compressed payload) — `Map<int, RootInteraction>`
+  for the whole server: `mapMaxId` and every root asset. Observed on one build:
+  6476 roots, 143 736 compressed bytes / 924 146 raw bytes.
+  `RootInteraction` fixed block is 6 bytes with seven `i32` variable offsets at
+  `6` (asset id string), `10` (`interactions: int[]`), `14` (cooldown),
+  `18` (settings), `22` (rules), `26` (tags), `30` (hud input binding), variable
+  block starting at `+34`; null bits are `id` (0), `cooldown` (1), `settings` (2),
+  `tags` (3), `hudInputBindingEntry` (4). `InteractionRules` occupies a 17-byte
+  fixed block but its variable block starts at `+33` (16 bytes of padding).
+- `UpdateItems` (**54**) — every `ItemBase.interactions` is a
+  `Map<InteractionType, int>`; this is the item's Primary/secondary root id.
+
+The op roots a chain then runs are *not* the `interactions` array of that root.
+For a pickaxe, root `2714` (`Pickaxe_Attack`) has a single entry, while the ops
+that actually run are separate root assets named after the nested interactions
+(`1273` = `**Pickaxe_Mine_Next_Interactions_0`, `1274` = `..._1`,
+`1275` = `..._2`, `5641` = `*Tool_Pickaxe_Crude_InteractionVars_Pickaxe_Mine_Effect`).
+The ids in `RootInteraction.interactions` do not index the root table — reading
+`Pickaxe_Attack (2714) -> [274]` resolves `274` to an unrelated sword asset, and
+the same holds for every root sampled — so the op set cannot be read off the root
+graph alone: it also needs the `Interaction` asset table, a separate packet.
+
+Practical rule: a captured skeleton is reusable across items of the same kind
+once the op roots are rewritten positionally, and the mapping is worth caching
+per `(item, build)`; detect a build change by hashing the asset table and drop
+the cache when the hash moves. One throwaway swing per item per build recovers
+the ids if the cache is empty: the echo of the first update names the root the
+server resolved.
 
 A swing that damages blocks also opens **forks**: `BlockDamage` runs the damage
 step per selected block as a forked chain (`new_forks` on the update, later
