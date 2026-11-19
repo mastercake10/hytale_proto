@@ -274,34 +274,66 @@ With nothing in hand the interaction is still allowed to run
 only blocks that accept a bare hand (soft blocks) actually give way. Stone and
 ore need a matching tool.
 
-Root interaction ids belong to the **item**, not to the interaction type. In the
-swing chain the **Primary root of the item in hand** differs between items
-(observed: iron pickaxe `3031`, thorium pickaxe `3025`, copper pickaxe `3031`,
-bare hand `3687`).
+Root interaction ids belong to the **item**, not to the interaction type: the
+server resolves the Primary root from the item *it* has in hand
+(`InteractionContext.getRootInteractionId`) and runs the operations of that root.
+The follow-on operations each carry their own root id too, and the whole set
+differs per item.
 
-The follow-on operations are **not** a single shared skeleton, though: the
-sub-operation shape of the chain also differs by item class. A captured bare-hand
-swing (root `3687`) carries several `interaction_data` ops with varying
-`block_face` and `operation_counter`, while a captured pickaxe swing (root
-`3031`) carries a shorter two-op shape. Replaying a **pickaxe** skeleton while an
-**empty hand or a non-tool item** is held — even with the root id swapped — is
-cancelled with [[CancelInteractionChain]] (291) and builds no damage, because the
-server validates the whole chain against the root it resolved from the held item.
+The ids are **not stable per item class, and not stable across sessions**. Two
+pickaxes of the same class, captured in one session, ran different sets:
 
-Observed rule: keep one captured skeleton **per interaction class** and pick by
-what is held — a bare-hand/non-tool capture for an empty or non-tool slot, a
-tool capture for a held tool — then rewrite only `chain_id`, `block_position`
-(and `active_hotbar_slot`/`equip_slot`/`item_in_hand_id` to the live hand). With
-the matching skeleton a pickaxe breaks both stone and soft blocks with zero
-cancels; the wrong-class skeleton produces only cancels. (An item's Primary root
-is also listed in `UpdateItems` (54): `ItemBase.interactions: type -> root id`.)
+| Held item | Op roots the server ran, in chain order |
+|-----------|------------------------------------------|
+| crude pickaxe | `2714`, `1273`, `1274`, `1275`, `5641` |
+| copper pickaxe (capture) | `3031`, `1108`, `1109`, `1110`, `5669` |
+| adamantite pickaxe | same as crude after remap |
+| hatchet | `2763`, `1164`, `1165`, `1166`, `4361` |
+| bare hand | `3687`, `430`, `431`, `77` (later `3376`, `595`, `596`, `2573`) |
+| held block (Soil_Dirt) | `3296` |
+
+So a captured skeleton can be reused for another item of the same class, but
+every op root has to be rewritten to the ids the server resolves for the item
+actually held. The mapping is positional: template op `i` plays the server's op
+`i`, so template `[3031, 1108, 1109, 1110, 5669]` becomes
+`[2714, 1273, 1274, 1275, 5641]` for a crude pickaxe.
+
+Consequences for replay (all observed on the wire):
+
+- If the **first** op root is wrong, the server does not start the chain and does
+  not cancel it either; it answers only when the queued chain times out (a few
+  seconds), or its echo reveals the root it resolved. Learn the held item's
+  Primary root from that echo, and the remaining op roots from the updates the
+  server echoes as it advances through the chain.
+- If a **later** op root is stale, the chain runs up to that op and then hangs
+  until the timeout. Each replay learns one more op, so a second swing with the
+  learned ids completes.
+- The skeleton shape itself does differ by item **kind**, not by class: a tool
+  swing and a bare-hand (or non-tool item) swing are different chains. Replaying
+  the hand shape while a tool is held is cancelled immediately, and vice versa.
+  Keep one capture per kind and swap the op roots.
+- A `SetActiveSlot` correction or an immediate [[CancelInteractionChain]] (291)
+  on the first update means the claimed hand (hotbar slot + item) is wrong; a
+  cancel that arrives seconds later is the queue timeout, not the hand claim.
+
+A swing that damages blocks also opens **forks**: `BlockDamage` runs the damage
+step per selected block as a forked chain (`new_forks` on the update, later
+updates carrying `forked_id` = entry/sub-entry indices). Each fork needs its own
+`state 0` (Finished) update; an unreleased fork stops at progress `0.184` and the
+whole chain never completes. Some ops are *hold* ops that run indefinitely until
+the client sends `state 0` for them.
+
+Ending a chain correctly means mirroring the server's own last echoed update with
+`state 0` and `initial` false, and doing the same for every open fork. Sending a
+template-shaped close instead misses a hold op or a fork, and a chain left open
+makes every later chain queue behind it and time out.
 
 One hit is the **whole chain**, not just its first packet: the initial update
 starts the swing and the following updates carry the charge ramp (`progress`
 rising). A capture of a real hold shows the exact cadence:
 
-- one update every **~12 ms**, all with the same `chain_id`, for **~270 ms**
-  (about 20 updates) - that is one held swing
+- one update per client tick, **~16.7 ms** apart (`~12 ms` in some captures), all
+  with the same `chain_id`, for **~270 ms** - that is one held swing
 - the chain is closed with a final update whose state is `0` (Finished)
 - the next swing starts a **new chain id** about **84 ms** later
 
@@ -369,10 +401,6 @@ silence applies — nothing is cancelled, the new chains are simply not run.
 
 Note: a client packet that is dropped before the chain is created produces no
 `CancelInteractionChain` (291) at all — silence is not acceptance.
-
-```packet
-summary: Secondary on a block item; support position in chain data, filled cell in sync data
-```
 
 ## Attacking an entity
 
