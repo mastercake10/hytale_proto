@@ -331,10 +331,11 @@ Consequences for replay (all observed on the wire):
   The block-breaking sub-interaction therefore sits at a **different index** in
   the two chains: op `0` of the parallel for the pickaxe, op `1` for the hatchet.
   Replaying a pickaxe skeleton while holding a hatchet and only rewriting the op
-  roots leaves the hatchet's block step without the `state 3` + `block_position`
-  "hit this cell" data; the chain still runs to `state 0` and is never
-  cancelled, but no damage is applied (40 swings, `max_progress` 0.0). One
-  captured swing per tool class is needed — swapping op roots is not enough.
+  roots leaves the hatchet's block step without its `BreakBlock` entry and
+  `block_position`; the chain still runs to `state 0` and is never cancelled,
+  but no damage is applied (40 swings, `max_progress` 0.0). Swapping op roots on
+  another class's skeleton is not enough — the entry sequence itself differs.
+  It can be derived from the asset tables instead (see *Simulating a swing*).
 - A `SetActiveSlot` correction or an immediate [[CancelInteractionChain]] (291)
   on the first update means the claimed hand (hotbar slot + item) is wrong; a
   cancel that arrives seconds later is the queue timeout, not the hand claim.
@@ -355,26 +356,71 @@ Two asset packets carry the ids, both sent once at join:
 - `UpdateItems` (**54**) — every `ItemBase.interactions` is a
   `Map<InteractionType, int>`; this is the item's Primary/secondary root id.
 
-The op roots a chain then runs are *not* the `interactions` array of that root.
-For a pickaxe, root `2714` (`Pickaxe_Attack`) has a single entry, while the ops
-that actually run are separate root assets named after the nested interactions
-(`1273` = `**Pickaxe_Mine_Next_Interactions_0`, `1274` = `..._1`,
-`1275` = `..._2`, `5641` = `*Tool_Pickaxe_Crude_InteractionVars_Pickaxe_Mine_Effect`).
-The ids in `RootInteraction.interactions` do not index the root table — reading
-`Pickaxe_Attack (2714) -> [274]` resolves `274` to an unrelated sword asset, and
-the same holds for every root sampled — so the op set cannot be read off the root
-graph alone: it also needs the `Interaction` asset table, a separate packet.
+- `UpdateInteractions` (**66**, zstd-compressed payload) — `Map<int, Interaction>`:
+  every compiled interaction. Same header as 67 (`u8 nullBits`, `u8 UpdateType`,
+  `i32 maxId`, then at `6` a VarInt count) and entries `{i32 id, VarInt typeId,
+  body}` with **no length prefix**: the end of a body is only known by walking
+  its variable fields. Entries arrive in hash order, not by id. Observed: 9195
+  interactions, 135 137 compressed / 1 650 286 raw bytes.
+  Common body prefix: `u8 nullBits`, `u8 waitForDataFrom` (0 Client, 1 Server,
+  2 None), `f32 horizontalSpeedMultiplier`, `f32 runTime` at `+6`,
+  `i32 onItemChangeBehavior`; then type fields, then `i32` variable offsets
+  (`-1` = absent) in the order effects, settings, rules (always present), tags,
+  camera, type-specific extras. Types laid out like `Simple` (typeId 1) carry
+  `next` at `+14` and `failed` at `+18` (interaction ids). Exceptions with two
+  null-bit bytes: `Condition` (12: runTime `+7`, next `+15`, failed `+19`,
+  game-mode/movement requirements at `+23..+29`) and `Wielding` (10). `Parallel`
+  (23) children and `Replace` (15) `defaultValue` (`+14`) are **root** ids;
+  `Replace` names its item variable in a string field; `Serial` (29) and
+  `Chaining` (11) children are interaction ids. Main typeIds: 0 SimpleBlock,
+  1 Simple, 2 PlaceBlock, 3 BreakBlock, 5 UseBlock, 11 Chaining, 12 Condition,
+  15 Replace, 17 ChangeState, 20 Select, 21 DamageEntity, 23 Parallel, 29 Serial.
 
-Practical rule: a captured skeleton is reusable across items of the same class
-(two pickaxes, two hatchets) once the op roots are rewritten positionally, and the mapping is worth caching
-per `(item, build)`; detect a build change by hashing the asset table and drop
-the cache when the hash moves. One throwaway swing per item per build recovers
-the ids if the cache is empty: the echo of the first update names the root the
-server resolved.
+`RootInteraction.interactions` are ids into packet **66**, not into the root
+table. Root and interaction ids are dense indices that a server update
+reassigns; two servers of one network were observed on different builds at
+the same time (the same root id named `Hatchet_Attack` on one and a projectile
+asset on the other), so the tables must be taken from the current join.
 
-Mining progress is client-authored: the captured swing carries its own
-`progress` floats (a ramp like `0.0166, 0.0333, 0.05 ...` per update), and the
-server echoes them back unchanged rather than computing them.
+The client links an item to its roots by name: an item's Primary root is the
+named root it references (`Tool_Hatchet_Crude` → `Hatchet_Attack`); an inline
+definition becomes a root named `*<item>_Interactions_Primary`, and item
+variables become `*<item>_InteractionVars_<var>` (inherited through the item's
+`Parent`). Block items without their own Primary use `Block_Primary`, the empty
+hand `*Empty_Interactions_Primary`.
+
+### Simulating a swing
+
+A root compiles into a flat operation list (the server's `OperationsBuilder`,
+which the client mirrors), and `operation_counter` is the index into it:
+
+- an interaction with `next` or `failed` emits itself (with a label pointing at
+  its failed branch), then its `next` inline, then a **jump** to the end only
+  when `failed` is set, then its `failed` branch inline. Jumps occupy an index;
+- `Serial` emits no op of its own, only its children inline;
+- `Chaining` emits itself, then per child `child; jump(end)`;
+- everything else (`Parallel`, `Replace`, ...) is one op; its targets are
+  other roots that are entered (pushed) or forked.
+
+Running it, every **executed** op makes exactly one entry
+`{operation_counter, root_interaction}` in execution order, counting across
+entered roots; an entered root starts at counter 0 and returning resumes the
+caller at the calling op + 1. `Parallel` enters child 0 in the same chain and
+forks children 1..n with `forked_id = (entry index of the Parallel, k - 1)`.
+`InteractionState`: 0 Finished, 1 Skip, 2 ItemChanged, **3 Failed**,
+4 NotFinished. An op that fails jumps to its failed label (or the next op when
+it has none). At an ordinary block in survival: `UseBlock` fails (its failed
+branch is the `BreakBlock` path), `ChangeState` fails, a `Condition` holds only
+if every requirement it sets matches the player; timed ops (`Simple`, `Select`)
+stay NotFinished until their `runTime`. This reproduces captured hatchet,
+pickaxe and bare-hand swings entry for entry, and swings built this way were
+accepted live for three tool classes without any capture.
+
+The server checks each entry's `operation_counter` and `root_interaction`
+against its own run, the entry order and fork ids, the `Chaining` index and the
+`BreakBlock` `block_position` (reach-checked). It keeps its own clock:
+`progress` is not read, and the server reports its own progress rather than
+echoing the client's.
 
 A swing that damages blocks also opens **forks**: `BlockDamage` runs the damage
 step per selected block as a forked chain (`new_forks` on the update, later
