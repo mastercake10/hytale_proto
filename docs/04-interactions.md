@@ -209,26 +209,19 @@ container opening) are validated server-side by
 
 ## Root interaction resolution
 
-Start validation resolves a *root interaction id* from the chain's
-`interaction_type` and the held item (`InteractionContext.getRootInteractionId`),
-then looks it up in the loaded assets. Ids travel in `InteractionSyncData` as
-`root_interaction` (offset `11`) and `entered_root_interaction` (offset `23`).
+At chain start the server resolves the root from the chain's `interaction_type`
+and the item **it** sees in the player's hand (`getRootInteractionId`); the
+client's `root_interaction` values are checked against that, not trusted. Two
+failure paths look different on the wire:
 
-The lookup has two different failure paths, which look different on the wire:
+- **No root for this type, or blocked by world config** — immediate
+  [[CancelInteractionChain]] (291). Same for a bad chain id, a client-started
+  fork or missing chain data.
+- **Root id unknown in the server's asset set** — no start and no cancel; the
+  queued chain is cancelled only after the timeout (~3 s).
 
-- **Blocked or missing for this type** (`getRootInteractionId` returns null, or
-  the root is disabled by world config): the chain is rejected *immediately*
-  with [[CancelInteractionChain]] (291). The same happens for a chain id at or
-  below `lastClientChainId`, a forked chain started by the client, missing
-  chain data, or a negative/zero chain id.
-- **Id not found in the asset set** (`RootInteraction.getRootInteractionOrUnknown`
-  returns null): the server does not start and does not reject. The start packet
-  stays queued and the client receives 291 only after the operation timeout,
-  roughly 3 s later. An id captured from an older game build reaches this path.
-
-A chain that is never answered is therefore usually a stale root interaction id,
-not a distance or slot problem: those two produce an immediate cancel and a
-[[SetActiveSlot]] correction respectively.
+A chain that is never answered therefore usually carries a wrong root id; a
+wrong hand claim gives an immediate cancel plus a [[SetActiveSlot]] correction.
 
 ## Queueing
 
@@ -258,275 +251,180 @@ Links are one-way: the destination is the block's own warp, so using A lands at
 B without B gaining a route back to A. A teleporter whose state is not `default`
 is reset to its default variant when used.
 
+## Interaction assets
+
+The client receives everything it needs to run interactions once, at join, as
+zstd-compressed asset packets. Both start with `u8 nullBits` (bit0 = map
+present), `u8 UpdateType`, `i32 maxId`, then at offset `6` a `VarInt` count and
+`count` entries `{i32 id, value}`; entries come in hash order, not by id.
+
+**`UpdateRootInteractions` (67)** — value is a `RootInteraction`:
+
+| Offset | Field | Type |
+|---:|---|---|
+| 0 | null bits | `u8` — bit0 id, bit1 cooldown, bit2 settings, bit3 tags, bit4 hud binding |
+| 1 | `clickQueuingTimeout` | `f32` |
+| 5 | `requireNewClick` | `bool` |
+| 6..30 | offsets of id, `interactions`, cooldown, settings, rules, tags, hud binding | 7 × `i32` |
+| 34 | variable block | |
+
+`id` is the asset name; `interactions` (`VarInt n` + n × `i32`) are ids into
+packet 66. `InteractionRules` has a 17-byte fixed block but its variable block
+starts at `+33`.
+
+**`UpdateInteractions` (66)** — value is `VarInt typeId` + an `Interaction` body.
+Bodies have **no length prefix**; the end is only found by walking every
+variable field. Common prefix:
+
+| Offset | Field | Type |
+|---:|---|---|
+| 0 | null bits | `u8` — bit0 effects, bit1 settings, bit2 tags, bit3 camera, higher bits per type |
+| 1 | `waitForDataFrom` | `u8` — 0 Client, 1 Server, 2 None |
+| 2 | `horizontalSpeedMultiplier` | `f32` |
+| 6 | `runTime` | `f32` (seconds) |
+| 10 | `onItemChangeBehavior` | `i32` |
+| 14 | type fields, then `i32` variable offsets | `-1` = absent |
+
+Variable offsets follow the order effects, settings, rules (always present),
+tags, camera, then type-specific fields. Most types share the `Simple` layout
+with `next` at `+14` and `failed` at `+18` (interaction ids). `Condition` and
+`Wielding` have two null-bit bytes, which shifts their fields by one
+(`Condition`: `runTime` `+7`, `next` `+15`, `failed` `+19`, then optional
+game-mode / movement requirements). Child references:
+
+| Type (typeId) | Children | Refer to |
+|---|---|---|
+| `Simple`-like | `next`, `failed` | interaction ids |
+| `Serial` (29) | list | interaction ids |
+| `Chaining` (11) | list (+ optional flag map) | interaction ids |
+| `Parallel` (23) | list | **root** ids |
+| `Replace` (15) | `defaultValue` (`+14`), variable name (string) | **root** id |
+| `Select` (20) | `hitEntity` (`+23`) | **root** id |
+
+Other typeIds used by tools: 0 SimpleBlock, 1 Simple, 2 PlaceBlock,
+3 BreakBlock, 5 UseBlock, 12 Condition, 17 ChangeState, 21 DamageEntity.
+
+**Items to roots.** `ItemBase.interactions` in `UpdateItems` (54) maps an
+interaction type to the item's root. By name, the same link is: a referenced
+root (e.g. `Hatchet_Attack`); an inline definition becomes the root
+`*<Item>_Interactions_<Type>`; item variables used by `Replace` become
+`*<Item>_InteractionVars_<Var>` (inherited from the item's `Parent`). Block items
+without their own entry use `Block_Primary`; an empty hand uses
+`*Empty_Interactions_Primary`. Interactions nested inline in another asset get
+roots named after their path (e.g. `**<Asset>_Next_Interactions_<i>`).
+
+**Id stability.** Ids are assigned when the server loads its assets. They were
+stable across reconnects, but after a server restart the same asset set came
+back numbered differently. Always use the tables from the current join, never
+ids stored from an earlier session.
+
+## Running a chain
+
+A root compiles into a flat list of operations (`OperationsBuilder`; the client
+does the same). `operation_counter` is an index into that list.
+
+- An interaction with `next` or `failed` emits itself, then its `next` inline,
+  then a `Jump` to the end if `failed` is set, then its `failed` branch inline.
+  Failing jumps to the start of the failed branch (or past `next` when there is
+  none). A `Jump` takes an index of its own.
+- `Serial` emits only its children, inline.
+- `Chaining` emits itself, then `child; Jump(end)` for each child, and continues
+  at the child selected by `chaining_index`.
+- Every other type is one operation. `Parallel` and `Replace` targets are roots
+  that run separately.
+
+Each **executed** operation produces exactly one `InteractionSyncData` entry, in
+execution order, with `operation_counter` and the `root_interaction` that owns
+the operation. Entry indices count across entered roots:
+
+- **Enter a root** (`Replace`, `Parallel` child 0, a successful `UseBlock`):
+  the next entry is counter 0 of the new root; when it runs out, the caller
+  resumes at the calling operation + 1.
+- **Fork** (`Parallel` children 1..n): a separate chain with the same
+  `chain_id`, `forked_id = (entry index of the Parallel, k - 1)`, starting at
+  entry 0. A fork of a fork nests its id.
+- An update carries entries `operation_base_index ..` up to the newest one; the
+  server drops buffered entries past the end of each update, so always re-send
+  through the latest entry.
+
+What each operation reports (state values in [[#States]]):
+
+| Operation | Client result |
+|---|---|
+| `Simple`, `Select` | NotFinished until `runTime` has elapsed, then Finished |
+| `Chaining` | Finished, `chaining_index` = chosen child |
+| `Jump`, `Parallel`, `Replace` | Finished at once (`Replace` with no target: Failed) |
+| `UseBlock` | Failed when the block has no use action → its failed branch |
+| `ChangeState` | Failed when the block has no matching state |
+| `Condition` | Finished if every requirement it sets (game mode, jumping, crouching, …) matches the player, else Failed |
+| `BreakBlock` | Finished, with `block_position` and `block_face` |
+
+The chain's own `state` is 4 while any operation runs and 0 when the last one
+finished; every fork must reach 0 as well.
+
+**What the server checks.** For each entry: `operation_counter` and
+`root_interaction` must equal the server's own run (otherwise desync and the
+rest of the client data is dropped), entries must be contiguous, fork ids and
+chain ids must be right, a finished entry may not go back to NotFinished, and
+`chaining_index` must be in range. `BreakBlock` uses the entry's
+`block_position` (reach-checked); `Select` takes its end from the client and its
+targets from `hit_entities`. The server keeps its **own clock**: `progress` is
+not read, `runTime` is enforced server-side, and the progress it sends back is
+its own.
+
+**Timeouts.** The threshold is about `2 × ping + 3 s`. A chain is cancelled when
+an operation waits for client data longer than that, or when client and server
+disagree about the chain being finished for longer than that. A chain that the
+client never finishes stays active and blocks later chains of the same kind
+(rules / `validateBlocked`) until it times out or the player reconnects.
+
 ## Breaking blocks
 
-`BreakBlockInteraction` is a `SimpleBlockInteraction` whose config decides what a
-swing may break:
+Breaking is the held item's **Primary** chain aimed at a block
+(`interaction_type` 0, `data.block_position` = target). Its operations come
+entirely from the item's root (see above), so the entry sequence differs per
+tool class: the block-break step sits at a different place, and in a different
+fork, for a pickaxe, a hatchet, a shovel or a bare hand. Swapping ids inside
+another item's sequence leaves the break step without its `BreakBlock` entry —
+the chain completes normally but deals no damage.
 
-- `SoftOnly` refuses everything that is not a soft block, whatever is held.
-- `Tool` + `MatchTool` name the tool the block wants; a held item that does not
-  match fails the damage step.
-- The world config can forbid breaking a block type outright
-  (`WorldConfig.isBlockBreakingAllowed`).
+`BreakBlockInteraction` decides what may break:
 
-With nothing in hand the interaction is still allowed to run
-(`heldItemStack == null`), but it falls back to the plain block-damage path, so
-only blocks that accept a bare hand (soft blocks) actually give way. Stone and
-ore need a matching tool.
+- `SoftOnly` refuses everything but soft blocks.
+- `Tool` / `MatchTool` require a matching tool for the damage step.
+- `WorldConfig.isBlockBreakingAllowed` can forbid a block type.
+- With nothing in hand only blocks that accept a bare hand give way.
+- A tool's `BreakShape` damages every block the shape selects around the target.
+- In Creative the damage step is skipped and selected blocks are removed.
 
-Root interaction ids belong to the **item**, not to the interaction type: the
-server resolves the Primary root from the item *it* has in hand
-(`InteractionContext.getRootInteractionId`) and runs the operations of that root.
-The follow-on operations each carry their own root id too, and the whole set
-differs per item.
-
-Where the ids come from: set at asset load and delivered to the client as part
-of the asset stream (see [[Interaction root assets]] below), so a client knows
-them before its first swing. They are **stable for a given server build** and
-**change when the server's asset table changes** — comparing captures from two
-different server builds is what makes them look per-session. Same build, three
-pickaxe classes:
-
-| Held item | Op roots the server ran, in chain order |
-|-----------|------------------------------------------|
-| crude / copper / adamantite pickaxe | `2714`, `1273`, `1274`, `1275`, `5641` |
-| hatchet | `2763`, `1164`, `1165`, `1166`, `4361`, `2573` |
-| bare hand | `3376`, `595`, `596`, `2573` (an older build: `3687`, `430`, `431`, `77`) |
-| held block (Soil_Dirt) | `3296` |
-
-A capture from an older build carried `3031`, `1108`, `1109`, `1110`, `5669` for
-a pickaxe. The ids are dense indices into the server's root table, so a server
-update reassigns them: `3031` now names `Boar_Ram`, `1108` a mace interaction.
-An old capture therefore does not fail loudly — it points at unrelated roots,
-which is why one skeleton cannot keep its own ids across a server update.
-
-So a captured skeleton can be reused for another item of the same class, but
-every op root has to be rewritten to the ids the server resolves for the item
-actually held. The mapping is positional: template op `i` plays the server's op
-`i`, so template `[3031, 1108, 1109, 1110, 5669]` becomes
-`[2714, 1273, 1274, 1275, 5641]` for a crude pickaxe.
-
-Consequences for replay (all observed on the wire):
-
-- If the **first** op root is wrong, the server does not start the chain and does
-  not cancel it either; it answers only when the queued chain times out (a few
-  seconds), or its echo reveals the root it resolved. Learn the held item's
-  Primary root from that echo, and the remaining op roots from the updates the
-  server echoes as it advances through the chain.
-- If a **later** op root is stale, the chain runs up to that op and then hangs
-  until the timeout. Each replay learns one more op, so a second swing with the
-  learned ids completes.
-- The skeleton shape differs by item **kind** — a tool swing and a bare-hand (or
-  non-tool item) swing are different chains. Replaying the hand shape while a
-  tool is held is cancelled immediately, and vice versa.
-- The skeleton shape also differs **within** the tool kind, because each tool
-  class runs its own attack interaction. Observed: a crude pickaxe runs
-  `Pickaxe_Mine` = `Simple 0.083 -> Parallel[ (0) Simple -> Pickaxe_Block_Break,
-  (1) Selector -> Pickaxe_Mine_Damage, (2) Replace Var Pickaxe_Mine_Effect ]`
-  (5 op roots), while a crude hatchet runs `Hatchet_Chop` =
-  `Simple 0.083 -> Parallel[ (0) Trigger_Explosion + Selector -> Hatchet_Chop_Damage,
-  (1) Simple -> Block_Break, (2) Replace Var Hatchet_Chop_Effect ]`
-  (6 op roots: the generic `Block_Break` adds
-  `2573` = `****Block_Break_Failed_Next_Interactions_1_DefaultValue`).
-  The block-breaking sub-interaction therefore sits at a **different index** in
-  the two chains: op `0` of the parallel for the pickaxe, op `1` for the hatchet.
-  Replaying a pickaxe skeleton while holding a hatchet and only rewriting the op
-  roots leaves the hatchet's block step without its `BreakBlock` entry and
-  `block_position`; the chain still runs to `state 0` and is never cancelled,
-  but no damage is applied (40 swings, `max_progress` 0.0). Swapping op roots on
-  another class's skeleton is not enough — the entry sequence itself differs.
-  It can be derived from the asset tables instead (see *Simulating a swing*).
-- A `SetActiveSlot` correction or an immediate [[CancelInteractionChain]] (291)
-  on the first update means the claimed hand (hotbar slot + item) is wrong; a
-  cancel that arrives seconds later is the queue timeout, not the hand claim.
-
-### Interaction root assets
-
-Two asset packets carry the ids, both sent once at join:
-
-- `UpdateRootInteractions` (**67**, zstd-compressed payload) — `Map<int, RootInteraction>`
-  for the whole server: `mapMaxId` and every root asset. Observed on one build:
-  6476 roots, 143 736 compressed bytes / 924 146 raw bytes.
-  `RootInteraction` fixed block is 6 bytes with seven `i32` variable offsets at
-  `6` (asset id string), `10` (`interactions: int[]`), `14` (cooldown),
-  `18` (settings), `22` (rules), `26` (tags), `30` (hud input binding), variable
-  block starting at `+34`; null bits are `id` (0), `cooldown` (1), `settings` (2),
-  `tags` (3), `hudInputBindingEntry` (4). `InteractionRules` occupies a 17-byte
-  fixed block but its variable block starts at `+33` (16 bytes of padding).
-- `UpdateItems` (**54**) — every `ItemBase.interactions` is a
-  `Map<InteractionType, int>`; this is the item's Primary/secondary root id.
-
-- `UpdateInteractions` (**66**, zstd-compressed payload) — `Map<int, Interaction>`:
-  every compiled interaction. Same header as 67 (`u8 nullBits`, `u8 UpdateType`,
-  `i32 maxId`, then at `6` a VarInt count) and entries `{i32 id, VarInt typeId,
-  body}` with **no length prefix**: the end of a body is only known by walking
-  its variable fields. Entries arrive in hash order, not by id. Observed: 9195
-  interactions, 135 137 compressed / 1 650 286 raw bytes.
-  Common body prefix: `u8 nullBits`, `u8 waitForDataFrom` (0 Client, 1 Server,
-  2 None), `f32 horizontalSpeedMultiplier`, `f32 runTime` at `+6`,
-  `i32 onItemChangeBehavior`; then type fields, then `i32` variable offsets
-  (`-1` = absent) in the order effects, settings, rules (always present), tags,
-  camera, type-specific extras. Types laid out like `Simple` (typeId 1) carry
-  `next` at `+14` and `failed` at `+18` (interaction ids). Exceptions with two
-  null-bit bytes: `Condition` (12: runTime `+7`, next `+15`, failed `+19`,
-  game-mode/movement requirements at `+23..+29`) and `Wielding` (10). `Parallel`
-  (23) children and `Replace` (15) `defaultValue` (`+14`) are **root** ids;
-  `Replace` names its item variable in a string field; `Serial` (29) and
-  `Chaining` (11) children are interaction ids. Main typeIds: 0 SimpleBlock,
-  1 Simple, 2 PlaceBlock, 3 BreakBlock, 5 UseBlock, 11 Chaining, 12 Condition,
-  15 Replace, 17 ChangeState, 20 Select, 21 DamageEntity, 23 Parallel, 29 Serial.
-
-`RootInteraction.interactions` are ids into packet **66**, not into the root
-table. Root and interaction ids are dense indices that a server update
-reassigns; two servers of one network were observed on different builds at
-the same time (the same root id named `Hatchet_Attack` on one and a projectile
-asset on the other), so the tables must be taken from the current join.
-
-The client links an item to its roots by name: an item's Primary root is the
-named root it references (`Tool_Hatchet_Crude` → `Hatchet_Attack`); an inline
-definition becomes a root named `*<item>_Interactions_Primary`, and item
-variables become `*<item>_InteractionVars_<var>` (inherited through the item's
-`Parent`). Block items without their own Primary use `Block_Primary`, the empty
-hand `*Empty_Interactions_Primary`.
-
-### Simulating a swing
-
-A root compiles into a flat operation list (the server's `OperationsBuilder`,
-which the client mirrors), and `operation_counter` is the index into it:
-
-- an interaction with `next` or `failed` emits itself (with a label pointing at
-  its failed branch), then its `next` inline, then a **jump** to the end only
-  when `failed` is set, then its `failed` branch inline. Jumps occupy an index;
-- `Serial` emits no op of its own, only its children inline;
-- `Chaining` emits itself, then per child `child; jump(end)`;
-- everything else (`Parallel`, `Replace`, ...) is one op; its targets are
-  other roots that are entered (pushed) or forked.
-
-Running it, every **executed** op makes exactly one entry
-`{operation_counter, root_interaction}` in execution order, counting across
-entered roots; an entered root starts at counter 0 and returning resumes the
-caller at the calling op + 1. `Parallel` enters child 0 in the same chain and
-forks children 1..n with `forked_id = (entry index of the Parallel, k - 1)`.
-`InteractionState`: 0 Finished, 1 Skip, 2 ItemChanged, **3 Failed**,
-4 NotFinished. An op that fails jumps to its failed label (or the next op when
-it has none). At an ordinary block in survival: `UseBlock` fails (its failed
-branch is the `BreakBlock` path), `ChangeState` fails, a `Condition` holds only
-if every requirement it sets matches the player; timed ops (`Simple`, `Select`)
-stay NotFinished until their `runTime`. This reproduces captured hatchet,
-pickaxe and bare-hand swings entry for entry, and swings built this way were
-accepted live for three tool classes without any capture.
-
-The server checks each entry's `operation_counter` and `root_interaction`
-against its own run, the entry order and fork ids, the `Chaining` index and the
-`BreakBlock` `block_position` (reach-checked). It keeps its own clock:
-`progress` is not read, and the server reports its own progress rather than
-echoing the client's.
-
-A swing that damages blocks also opens **forks**: `BlockDamage` runs the damage
-step per selected block as a forked chain (`new_forks` on the update, later
-updates carrying `forked_id` = entry/sub-entry indices). Each fork needs its own
-`state 0` (Finished) update; an unreleased fork stops at progress `0.184` and the
-whole chain never completes. Some ops are *hold* ops that run indefinitely until
-the client sends `state 0` for them.
-
-Ending a chain correctly means mirroring the server's own last echoed update with
-`state 0` and `initial` false, and doing the same for every open fork. Sending a
-template-shaped close instead misses a hold op or a fork, and a chain left open
-makes every later chain queue behind it and time out.
-
-One hit is the **whole chain**, not just its first packet: the initial update
-starts the swing and the following updates carry the charge ramp (`progress`
-rising). A capture of a real hold shows the exact cadence:
-
-- one update per client tick, **~16.7 ms** apart (`~12 ms` in some captures), all
-  with the same `chain_id`, for **~270 ms** - that is one held swing
-- the chain is closed with a final update whose state is `0` (Finished)
-- the next swing starts a **new chain id** about **84 ms** later
-
-Matching that cadence is what makes a replay damage a block. Off-cadence
-replays are accepted with no error and do nothing, and a chain that is never
-closed stays open on the server: every later chain then queues behind it and
-times out, so nothing breaks at all until the player reconnects. The server
-validates the claimed hand (active hotbar slot + item, utility and tools slots)
-against its own state, and every update after the first must arrive while the
-chain is live, otherwise it is cancelled.
-
-A held tool also carries a `BreakShape` (from `ItemTool`), so one swing damages
-every block the shape selects around the target — a pickaxe breaks several
-blocks at once, not one. In Creative the server skips the damage step entirely
-and removes the selected blocks with no drops.
+Damage per swing comes from the tool's spec for the block's gather type, so a
+block takes several swings. The client starts the next swing (a new chain id)
+shortly after the previous chain finished.
 
 ## Placing a block
 
-Placing is a `Secondary` interaction on a **block item** in hand, and it takes
-two packets (observed with `Rock_Stone_Cobble`):
+Placing is the held block item's **Secondary** chain (`interaction_type` 1),
+run like any other chain (see [[#Running a chain]]):
 
-1. The initial chain: `interaction_type = Secondary` (1), `initial = true`,
-   `item_in_hand_id` set, `active_hotbar_slot`/`equip_slot` set.
-   - `data.block_position` = the **clicked support block**, not the cell being
-     filled.
-   - Its `interaction_data` entries carry the item's secondary root (observed
-     `3295`) and `block_face` on the entry that matches the clicked support
-     (for example `1` = Up when placing on top of it).
-2. Follow-up chain, same `chain_id`, `initial = false`, whose
-   `interaction_data` names the placement root (observed `70`):
-   - `block_position` = the **cell that receives the block** (support block
-     offset by the face direction).
-   - `block_face` = the same face.
-   - `placed_block_id` = the block type id being placed (`943` for the cobble
-     above).
-   - `block_rotation` is present (all zeroes for an unrotated block).
-
-So the position in the chain data and the position in the sync data are
-different cells: the clicked block versus the filled cell.
-
-The server side (`PlaceBlockInteraction`) reads the filled cell, face, rotation
-and placed block id from the interaction **sync data** of that follow-up update,
-and the support block from the chain data, then validates reach and places.
-
-One placement is **three** client packets, all with the same `chain_id` and sent
-about 16 ms apart (observed for a single right-click):
-
-| # | `initial` | content |
-|--:|-----------|---------|
-| 1 | true      | secondary interaction, item in hand, support block in the chain data |
-| 2 | false     | placement root, sync `state = 4` (NotFinished) |
-| 3 | false     | placement root, sync `state = 0` (Finished) |
-
-After that the client keeps sending low-cost updates for the item's root (state 4)
-for as long as the button is held. `interaction_data` entries whose
-`block_position` is absent belong to the item's other operations; only the entry
-for the placement root carries the filled cell.
-
-After those three the client sends one more update whose only entry is the
-item's own root with `state = 0` (Finished). That update matters: without it the
-chain stays pending, and while it is pending the server's interruption rules
-(`applyRules` → `validateBlocked`) refuse **every** later `Secondary` interaction
-for that player, including their own placements, until they reconnect. The same
-silence applies — nothing is cancelled, the new chains are simply not run.
-
-Note: a client packet that is dropped before the chain is created produces no
-`CancelInteractionChain` (291) at all — silence is not acceptance.
+- `data.block_position` = the **clicked support block**; entries name the
+  clicked side in `block_face` (e.g. `1` = Up).
+- The entry of the `PlaceBlock` operation carries the **cell that receives the
+  block** (support offset by the face) in `block_position`, plus `block_face`,
+  `block_rotation` and `placed_block_id`. `PlaceBlockInteraction` reads those
+  from the sync data and the support block from the chain data, then checks
+  reach.
+- The chain must be finished like any other (`state 0` on the item's root). A
+  placement chain left open blocks every later `Secondary` interaction of that
+  player through the interruption rules, silently — no cancel is sent.
 
 ## Attacking an entity
 
-A melee attack on an entity is the **same chain as a block swing** with one
-difference: the chain data carries the target's network id instead of a block
-position.
-
-- `data.entity_id` = the target's network id, `data.block_position` absent.
-- **The target the server acts on is the `hit_entities` list in the interaction
-  sync data**, not the chain data: `ClientSourcedSelector` reads
-  `clientState.hitEntities` and resolves each entry by `networkId`
-  (`SelectedHitEntity`: network id, hit location, position, body rotation). A
-  chain that only carries `data.entity_id` is accepted and does nothing.
-  Observed: the client only puts `hit_entities` on some operations of the chain
-  (the `operation_base_index = 5` updates in the capture), so a replay has to
-  rewrite both the chain data and those entries.
-- Same interaction type (`Primary`), same cadence: one update every ~16.7 ms for
-  about 200 ms, then a final update with `state = 0`.
-- The chain carries the same hand validation (active hotbar slot, item, utility
-  and tools slots) as any other interaction.
+A melee attack is the item's **Primary** chain with the target in the chain
+data (`data.entity_id` = network id, no block position). The server acts on
+the `hit_entities` list of the `Select` entries (`SelectedHitEntity`: network
+id, hit location, position, body rotation, read by `ClientSourcedSelector`),
+not on `data.entity_id`; a chain without `hit_entities` completes and does
+nothing. Hand validation is the same as for every chain.
 
 Entity positions come from `EntityUpdates` (161), which is a stream of records:
 
