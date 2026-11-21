@@ -175,7 +175,7 @@ same game version use different numbering (the same id was `Rock_Stone` on one
 and a plant block on another). Resolve names from the current join's list, never
 from a table saved on another server.
 
-`BlockType` layout used for names: 4 null-bit bytes, a 177-byte fixed block,
+`BlockType` layout used for names: a 177-byte fixed block (starting with 4 null-bit bytes),
 then 25 `i32` variable-field offsets, variable block at `+277`. The offset at
 `+177` is the `item` string, at `+181` the block `name`. When present, `item` is
 the first variable field (offset `0`), so `name` sits right after it. State
