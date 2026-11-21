@@ -417,6 +417,16 @@ run like any other chain (see [[#Running a chain]]):
   placement chain left open blocks every later `Secondary` interaction of that
   player through the interruption rules, silently — no cancel is sent.
 
+## Opening a container
+
+Opening a chest is the held item's **Use** chain (`interaction_type` 6) aimed at
+the block (`data.block_position`). Its entries name the item's Use root (an item
+without its own uses `*Empty_Interactions_Use`) and, for the step that acts on
+the block, the block's own Use root (`Open_Container` for chests). Like every
+root id these are renumbered at server start, so a recorded open chain only works
+again once its root ids are translated to the current tables. A chain with stale
+ids is not cancelled; the server just never opens the window.
+
 ## Attacking an entity
 
 A melee attack is the item's **Primary** chain with the target in the chain
