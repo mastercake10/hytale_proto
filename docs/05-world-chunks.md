@@ -170,10 +170,11 @@ server sends at join in `UpdateBlockTypes` (zstd-compressed, same map header as
 the other asset packets: `u8 nullBits`, `u8 UpdateType`, `i32 maxId`, `VarInt`
 count, then `{i32 id, BlockType}` entries with no length prefix).
 
-The ids are assigned when the server loads its assets: two servers running the
-same game version use different numbering (the same id was `Rock_Stone` on one
-and a plant block on another). Resolve names from the current join's list, never
-from a table saved on another server.
+The ids are assigned when the server loads its assets, in no fixed order. Two
+captures of the same server days apart carried the identical set of 6149 block
+types under a completely different numbering (no id kept its name). Reconnecting
+to a running server returns the same list. Resolve names from the current join's
+list, never from a table saved in an earlier server run.
 
 `BlockType` layout used for names: a 177-byte fixed block (starting with 4 null-bit bytes),
 then 25 `i32` variable-field offsets, variable block at `+277`. The offset at
