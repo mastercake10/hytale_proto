@@ -2,113 +2,69 @@
 
 ## Chunk grid
 
-World columns are grouped in 32×32 chunks. A chunk coordinate is:
+Columns are grouped in 32×32 chunks; block sections are 32×32×32.
 
 ```text
-cx = floor(x / 32)
-cz = floor(z / 32)
-local_x = floor(x) - cx * 32
-local_z = floor(z) - cz * 32
+cx = floor(x / 32)              local_x = floor(x) - cx * 32
+cz = floor(z / 32)              local_z = floor(z) - cz * 32
+index = ((y & 31) << 10) | ((z & 31) << 5) | (x & 31)   // local index in a section
 ```
+
+[[SetColumn]] and [[SetChunk]] for the same chunk arrive in no fixed order.
 
 ## SetColumn (138)
 
-`SetColumn` is a compact source of the top opaque block height for each column.
-It is useful for ground-height estimates.
-
-Layout of the payload after zstd decompression:
+Top opaque block height per column. zstd-compressed. Fixed block 4104 bytes;
+variable block starts right after it.
 
 ```packet
 bound: client
 summary: Compressed 32×32 height column
 columns: Offset | Field Name | Field Type | Notes
-0    | `x`       | `i32`
-4    | `z`       | `i32`
-8    | `height`  | `i32`[1024]      | 32 × 32, row-major by local z then local x. `-2147483648` is a sentinel for void/unknown
+0    | `x`       | `i32`            | Chunk coordinate
+4    | `z`       | `i32`            | Chunk coordinate
+8    | `height`  | `i32`[1024]      | Row-major by local z, then local x. `-2147483648` = void/unknown
 4104 | `tintmap` | `VarInt` + bytes | Length-prefixed tint data
 ```
 
-The fixed block is 4104 bytes: 8 bytes of coordinates plus 4096 bytes of
-heights. The variable block starts immediately after it.
-
 ## SetChunk (131)
 
-`SetChunk` carries compressed block-section data. It is much larger than
-`SetColumn`; only decode it when actual block contents are needed.
-
-Layout after decompression:
+One block section. zstd-compressed.
 
 ```packet
 bound: client
 summary: Compressed chunk section data
 columns: Offset | Field Name | Field Type | Notes
-0  | Null bits      | `u8`         | bit0 local light, bit1 global light, bit2 data
-1  | `x`            | `i32`        | Section coordinate, not block coordinate
-5  | `y`            | `i32`        | Section coordinate, not block coordinate
-9  | `z`            | `i32`        | Section coordinate, not block coordinate
-13 | `local_light`  | `i32` offset | Relative to byte 25
-17 | `global_light` | `i32` offset | Relative to byte 25
-21 | `data`         | `i32` offset | Relative to byte 25
-25 | Variable block | bytes        | Each field is a `VarInt` length followed by bytes
+0  | Null bits      | `u8`         | bit0 `local_light`, bit1 `global_light`, bit2 `data`
+1  | `x`            | `i32`        | Section coordinate
+5  | `y`            | `i32`        | Section coordinate
+9  | `z`            | `i32`        | Section coordinate
+13 | `local_light`  | `i32` offset | Relative to byte 25, `-1` absent
+17 | `global_light` | `i32` offset | Relative to byte 25, `-1` absent
+21 | `data`         | `i32` offset | Relative to byte 25, `-1` absent
+25 | Variable block | bytes        | Each field: `VarInt` length + bytes
 ```
 
-`x`, `y` and `z` are section coordinates. The first block in the section is at
-`(x * 32, y * 32, z * 32)`.
+The section's first block is at `(x * 32, y * 32, z * 32)`.
 
 ### Block section data
 
-The `data` field starts with the block palette, followed by the filler palette
-and the rotation palette. Each palette begins with a `u8` palette type:
+`data` holds three palettes in order: block, filler, rotation. All three use
+the same format: a `u8` palette type, then entries, then the per-block array.
 
-```text
-0 Empty     no palette entries and no block array (all air)
-1 HalfByte  up to 16 entries; packed nibbles
-2 Byte      up to 256 entries; one byte per block
-3 Short     up to 65536 entries; one u16 per block
-```
+| Type | Name     | Entries   | Entry layout                                   | Block array |
+|-----:|----------|-----------|------------------------------------------------|-------------|
+| 0    | Empty    | none      | -                                              | none (all air / 0) |
+| 1    | HalfByte | ≤ 16      | `u16 count`, then `u8 internal_id, i32 external_id, u16 block_count` | 16384 bytes, two nibbles per byte: high = even index, low = odd index |
+| 2    | Byte     | ≤ 256     | as HalfByte                                    | 32768 × `u8` |
+| 3    | Short    | ≤ 65536   | `u16 count`, then `u16 internal_id, i32 external_id, u16 block_count` | 32768 × `u16` LE |
 
-For `HalfByte` and `Byte`, the palette is:
-
-```text
-u16 count
-count x:
-  u8  internal_id
-  i32 external_id
-  u16 block_count
-```
-
-followed by the block array:
-
-- `HalfByte`: 16384 bytes. Each byte holds two nibbles; the high nibble is
-  the even local index and the low nibble is the odd local index.
-- `Byte`: 32768 bytes, one internal id per block.
-
-For `Short`:
-
-```text
-u16 count
-count x:
-  u16 internal_id
-  i32 external_id
-  u16 block_count
-```
-
-followed by 32768 little-endian `u16` internal ids.
-
-The local block index inside a 32×32×32 section is:
-
-```text
-index = ((y & 31) << 10) | ((z & 31) << 5) | (x & 31)
-```
-
-The filler and rotation palettes use the same type byte and palette layout;
-their values are stored in their own palette arrays.
+The array holds internal ids indexed by the local index; the palette maps them
+to external ids (block type id, filler, rotation).
 
 ## ServerSetBlock (140)
 
-One block update. This is the most direct confirmation that a block changed.
-
-Layout (fixed size: 19 bytes):
+One block update. Fixed size 19 bytes.
 
 ```packet
 bound: client
@@ -117,14 +73,14 @@ columns: Offset | Field Name | Field Type | Notes
 0  | `x`        | `i32`
 4  | `y`        | `i32`
 8  | `z`        | `i32`
-12 | `block_id` | `i32` | `0` means air/empty
+12 | `block_id` | `i32` | `0` = air/empty
 16 | `filler`   | `i16`
 18 | `rotation` | `u8`  | See [Rotations](08-glossary.md#rotations)
 ```
 
 ## ServerSetBlocks (141)
 
-A batch of block updates relative to an origin.
+Batched block updates in one section.
 
 ```packet
 bound: client
@@ -133,54 +89,55 @@ columns: Offset | Field Name | Field Type | Notes
 0  | `x`    | `i32`         | Section coordinate
 4  | `y`    | `i32`         | Section coordinate
 8  | `z`    | `i32`         | Section coordinate
-12 | `cmds` | SetBlockCmd[] | `VarInt` count followed by commands
+12 | `cmds` | SetBlockCmd[] | `VarInt` count + commands
 ```
 
-Each `SetBlockCmd` is 9 bytes:
+`SetBlockCmd`, 9 bytes. World position = `section * 32 + local`, local from
+`index` via the [Chunk grid](#chunk-grid) formula.
 
-| Offset | Field Name | Field Type | Notes |
-|-------:|------------|------------|-------|
-|      0 | `index`    | `i16`      | Local index inside the 32×32×32 section |
-|      2 | `block_id` | `i32`      |       |
-|      6 | `filler`   | `i16`      |       |
-|      8 | `rotation` | `u8`       |       |
-
-The world position of a command is `origin * 32 + local coordinate`, using the
-same local index formula as `SetChunk`.
+| Offset | Field Name | Field Type |
+|-------:|------------|------------|
+|      0 | `index`    | `i16`      |
+|      2 | `block_id` | `i32`      |
+|      6 | `filler`   | `i16`      |
+|      8 | `rotation` | `u8`       |
 
 ## UpdateBlockDamage (144)
 
-Visual damage/progress update, not necessarily a final block change.
+Block damage display; not a block change. Fixed size 21 bytes, uncompressed.
 
 ```packet
 bound: client
 summary: Block damage/progress display
+columns: Offset | Field Name | Field Type | Notes
+0  | Null bits  | `u8`  | bit0 `position`
+1  | `position` | `i32` × 3 | x, y, z; zero-filled when absent
+13 | `damage`   | `f32` |
+17 | `delta`    | `f32` |
 ```
-
-## Chunk loading behavior
-
-- The server may resend chunks after a new session or a major world update.
-- Height data can arrive before or after the corresponding block sections.
-- Caching height columns by chunk coordinate avoids repeated decompression.
 
 ## Block type ids
 
-Block ids in chunk sections and block updates index the block-type list the
-server sends at join in `UpdateBlockTypes` (zstd-compressed, same map header as
-the other asset packets: `u8 nullBits`, `u8 UpdateType`, `i32 maxId`, `VarInt`
-count, then `{i32 id, BlockType}` entries with no length prefix).
+Block ids in sections and block updates index the block-type list sent at join
+in `UpdateBlockTypes` (zstd-compressed; asset map header `u8 nullBits`,
+`u8 UpdateType`, `i32 maxId`, `VarInt` count, then `{i32 id, BlockType}`
+entries without length prefix).
 
-The ids are assigned when the server loads its assets, in no fixed order. Two
-captures of the same server days apart carried the identical set of 6149 block
-types under a completely different numbering (no id kept its name). Reconnecting
-to a running server returns the same list. Resolve names from the current join's
-list, never from a table saved in an earlier server run.
+Ids are assigned when the server loads its assets, in no fixed order. They are
+stable while the server runs and change between server starts. Always resolve
+names from the current join's list.
 
-`BlockType` layout used for names: a 177-byte fixed block (starting with 4 null-bit bytes),
-then 25 `i32` variable-field offsets, variable block at `+277`. The offset at
-`+177` is the `item` string, at `+181` the block `name`. When present, `item` is
-the first variable field (offset `0`), so `name` sits right after it. State
-variants have their own id and a name like `*<Item>_State_Definitions_<State>`
-while sharing the base `item`. Breaking behaviour lives in the item asset's
-`BlockType.Gathering.Breaking.GatherType` (`Rocks`, `Woods`, `Soils`, ...), and
-a tool's effect on it in its `Tool.Specs[].Power` for that gather type.
+`BlockType` name fields: 177-byte fixed block (first 4 bytes are null bits),
+then 25 `i32` variable-field offsets, variable block at `+277`.
+
+| Offset | Field  | Notes |
+|-------:|--------|-------|
+| `+177` | `item` | VarString; when present it is the first variable field (offset `0`) |
+| `+181` | `name` | VarString |
+
+State variants have their own id, a name like
+`*<Item>_State_Definitions_<State>`, and share the base `item`.
+
+Breaking: the item asset's `BlockType.Gathering.Breaking.GatherType`
+(`Rocks`, `Woods`, `Soils`, ...) selects which `Tool.Specs[].Power` of a tool
+applies.

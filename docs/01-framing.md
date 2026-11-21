@@ -1,127 +1,102 @@
 # Packet Framing and Streams
 
-The transport is QUIC. Application packets are framed inside QUIC streams.
+Transport is QUIC. Packets are framed inside QUIC streams.
 
 ## Frame format
 
-Every application packet uses this envelope.
+| Field Name       | Field Type             | Notes                                       |
+|------------------|------------------------|---------------------------------------------|
+| `payload_length` | `u32` LE               | Body length only (compressed size if compressed) |
+| `packet_id`      | `u32` LE               | See [Packet IDs](packets.md)                |
+| `payload`        | `payload_length` bytes | Packet body                                 |
 
-Layout:
+The server closes the connection (QUIC `PROTOCOL_VIOLATION`) when:
 
-| Field Name       | Field Type             | Notes                                                  |
-|------------------|------------------------|--------------------------------------------------------|
-| `payload_length` | `u32`                  | Counts only the packet body, not the eight-byte header |
-| `packet_id`      | `u32`                  | See [Packet IDs](packets.md)                           |
-| `payload`        | `payload_length` bytes | Packet body, described per packet                      |
-
-Both header fields are little-endian.
-
-A reader has to buffer stream data until a complete header and body are
-available. Because every frame carries its length, a packet with an unknown ID
-can be skipped without parsing its body.
+- `payload_length` is negative or above 1 677 721 600,
+- `packet_id` is not a known client-to-server packet,
+- `payload_length` exceeds the packet's maximum size,
+- the packet arrives on a stream other than its assigned channel,
+- the body fails to decode.
 
 ## Streams
 
-- The main bidirectional stream carries the normal client/server packet flow.
-- The server also opens auxiliary streams for bulk world data such as chunks,
-  columns and map updates.
-- Auxiliary streams use the same frame envelope.
+| Channel | Value | Stream | Packets |
+|---------|-------|--------|---------|
+| Default  | 0 | Main bidirectional stream, opened by the client | Everything not listed below |
+| Chunks   | 1 | Unidirectional, opened by the server | Chunk, column, block, fluid, heightmap and unload packets, e.g. [[SetChunk]], [[SetColumn]] |
+| WorldMap | 2 | Unidirectional, opened by the server | `UpdateWorldMap`, `ClearWorldMap` |
+| Voice    | 3 | ? | `VoiceData`, `RelayedVoiceData` |
+
+All streams use the same frame format. QUIC priority: Default and Chunks
+urgency 0, WorldMap urgency 1 (all incremental).
 
 ## Compression
 
-Several world-data packets contain zstd-compressed sections. Compression is
-per-packet body content, not a QUIC-level feature.
-[[SetChunk]] (131) and
-[[SetColumn]] (138) are the two most common
-examples.
+Some packets are marked compressed (e.g. [[SetChunk]], [[SetColumn]],
+`UpdateWorldMap`, `OpenWindow`). For these, the whole body is one zstd frame;
+`payload_length` is the compressed size. An empty body is not compressed.
 
 ## Data types
 
-| Type                | Size     | Notes                                                          |
-|---------------------|----------|----------------------------------------------------------------|
-| `i8`                | 1        | Signed 8-bit integer                                           |
-| `u8`                | 1        | Unsigned 8-bit integer                                         |
-| `bool`              | 1        |                                                                |
-| `f16`               | 2        | IEEE half float                                                |
-| `i16`               | 2        | Signed 16-bit integer                                          |
-| `i32`               | 4        | Signed 32-bit integer                                          |
-| `u32`               | 4        | Unsigned 32-bit integer                                        |
-| `f32`               | 4        | IEEE float                                                     |
-| `f64`               | 8        | IEEE double                                                    |
-| `UUID`              | 16       | Two big-endian 64-bit integers                                 |
-| `VarInt`            | variable | Compact variable-length integer encoding                       |
-| `VarString`         | variable | `VarInt` byte length followed by exactly that many UTF-8 bytes |
-| fixed ASCII[n]      | n        | Null-padded ASCII                                              |
-| `Position`          | 24       | 3 × `f64`                                                      |
-| `Vector3d`          | 24       | 3 × `f64`                                                      |
-| `Direction`         | 12       | 3 × `f32`                                                      |
-| `HalfFloatPosition` | 6        | 3 × `f16`                                                      |
-| vector3f            | 12       | 3 × `f32`                                                      |
+All multi-byte numbers are little-endian, except `UUID`.
+
+| Type                | Size     | Notes                                                       |
+|---------------------|----------|-------------------------------------------------------------|
+| `i8` / `u8`         | 1        |                                                             |
+| `bool`              | 1        | 0 or 1                                                      |
+| `i16`               | 2        |                                                             |
+| `i32` / `u32`       | 4        |                                                             |
+| `f32`               | 4        | IEEE float                                                  |
+| `f64`               | 8        | IEEE double                                                 |
+| `UUID`              | 16       | Two big-endian 64-bit integers (most significant first)     |
+| `VarInt`            | 1-5      | Unsigned LEB128, see below                                  |
+| `VarString`         | variable | `VarInt` byte length, then that many UTF-8 bytes            |
+| fixed ASCII[n]      | n        | Null-padded ASCII                                           |
+| `Position`          | 24       | 3 × `f64` (x, y, z)                                         |
+| `Vector3d`          | 24       | 3 × `f64`                                                   |
+| `Direction`         | 12       | 3 × `f32` (yaw, pitch, roll)                                |
+| `HalfFloatPosition` | 6        | 3 × `i16`, fixed point: value / 10000 blocks                |
+| vector3f            | 12       | 3 × `f32`                                                   |
 
 ## VarInt and VarString
 
-`VarInt` is an unsigned LEB128 value. The reader accepts at most five bytes,
-which covers the 32-bit range used by the protocol. Each byte contributes seven
-value bits; the high bit means another byte follows.
+`VarInt`: 7 value bits per byte, low bits first; high bit set means another
+byte follows. At most 5 bytes.
 
 ```pseudo
 function read_varint(bytes, offset):
     value = 0
-    shift = 0
-
     for i in 0 .. 4:
-        if offset + i >= len(bytes):
-            error "truncated VarInt"
-
-        byte = bytes[offset + i]
-        value = value | ((byte & 0x7F) << shift)
-
+        byte = bytes[offset + i]            // error if truncated
+        value |= (byte & 0x7F) << (7 * i)
         if (byte & 0x80) == 0:
-            return (value, i + 1)    // value and bytes consumed
+            return (value, i + 1)           // value, bytes consumed
+    error "VarInt longer than 5 bytes"
 
-        shift = shift + 7
-
-    error "VarInt is longer than five bytes"
-
-function write_varint(value):
-    if value < 0 or value > 0xFFFFFFFF:
-        error "VarInt out of range"
-
+function write_varint(value):               // 0 <= value <= 0xFFFFFFFF
     out = []
     loop:
         byte = value & 0x7F
-        value = value >> 7
-
-        if value != 0:
-            out.append(byte | 0x80)
-        else:
-            out.append(byte)
-            return out
+        value >>= 7
+        if value == 0: return out + [byte]
+        out.append(byte | 0x80)
 ```
 
-`VarString` is a `VarInt` byte length followed by UTF-8 bytes. The length counts
-bytes, not characters.
-
-```pseudo
-function read_varstring(bytes, offset):
-    (length, prefix_size) = read_varint(bytes, offset)
-    start = offset + prefix_size
-    end = start + length
-
-    if end > len(bytes):
-        error "truncated VarString"
-
-    return (decode_utf8(bytes[start:end]), prefix_size + length)
-
-function write_varstring(text):
-    data = encode_utf8(text)
-    return write_varint(len(data)) + data
-```
-
-When reading a packet body, keep the returned byte counts so the next field
-starts at the correct offset.
+`VarString` length counts bytes, not characters. Byte arrays use the same
+`VarInt` length prefix.
 
 ## Nullable fields
 
-Nullable fields are usually controlled by a bitfield at the start of the
-structure ("null bits"), with offsets into a variable block later in the packet.
+Structures with optional or variable-length fields are laid out as:
+
+1. Null bits: one or more `u8` bitfields; a set bit means the field is present.
+2. Fixed block: fixed-size fields in order. An absent optional fixed field is
+   still written, zero-filled.
+3. Offset table, only if there are two or more variable-length fields: one
+   `i32` per field, relative to the start of the variable block; `-1` when
+   absent. A single variable-length field has no offset; it starts the
+   variable block.
+4. Variable block: `VarString`s, byte arrays and nested structures.
+
+"Variable block starts at byte N" in packet descriptions is the size of
+items 1-3.

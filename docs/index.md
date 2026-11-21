@@ -1,13 +1,8 @@
 # Hytale Protocol
 
-Working notes on the Hytale network protocol: packet structure and the server
-behavior that comes with it. The aim is to cover what is needed to write a
-client, a server or other software that speaks the protocol.
-
-This is not an operational guide. It intentionally contains no step-by-step
-client-modification instructions, no credentials, and no account data.
-
-The notes are incomplete. Gaps are marked with `?` instead of being guessed.
+Reference for the Hytale network protocol: packet layouts and the server
+behaviour tied to them, for implementing a client, server or other
+protocol-speaking software. Undocumented parts are marked `?`.
 
 ## Pages
 
@@ -25,12 +20,13 @@ The notes are incomplete. Gaps are marked with `?` instead of being guessed.
 
 ## Conventions
 
-- All numeric fields are little-endian unless noted.
-- Field types are listed under [Data types](01-framing.md#data-types).
-- Packet IDs are decimal.
-- **Bound To** names the receiver: `Server` is sent by the client, `Client` is
-  sent by the server, `Both` goes either way.
-- Field names in `code` are identifiers; plain names are descriptions.
-- `?` in a table means the type or layout is not documented yet.
-- A packet table without a caption lists all fields in wire order. A table
-  captioned "Known fields" is partial and its order is not confirmed.
+- Numbers are little-endian; packet IDs are decimal.
+- Field types: [Data types](01-framing.md#data-types).
+- **Bound** names the receiver: `server` = sent by the client, `client` = sent
+  by the server, `both` = either way.
+- `code` names are wire identifiers; plain names are descriptions.
+- `@N` / offset columns are byte offsets from the start of the struct.
+- Variable-block offsets are `i32`, relative to the variable block start,
+  `-1` = absent.
+- A packet table without a caption lists all fields in wire order. "Known
+  fields" tables are partial and unordered.

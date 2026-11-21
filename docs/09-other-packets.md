@@ -1,62 +1,64 @@
 # Other Packets
 
-Packets that are known by ID but not described on another page yet.
+Packets not covered on another page.
 
 ```packets
-3 | Ping | both | Keepalive
-4 | Pong | both | Keepalive reply
-5 | NetworkTick | client | High-volume timing packet
-100 | SetClientId | client | Assigns the client network id
+3 | Ping | client | Keepalive / latency probe
+4 | Pong | server | Reply to Ping
+5 | NetworkTick | client | Tick duration and server tick number
+100 | SetClientId | client | Assigns the client's network entity id
 105 | ClientReady | server | Client chunk/gameplay readiness flags
 111 | MouseInteraction | server | Mouse button and targeted block/entity
-2 | ServerDisconnect | client | Disconnect with a reason; body layout not documented yet
+2 | ServerDisconnect | client | Disconnect with type and optional reason
 ```
+
+Fixed layouts (no variable block unless noted):
+
+| Packet | Layout |
+|--------|--------|
+| Ping (28 B) | `id` i32 @0, `time` InstantData @4 (`seconds` i64, `nanos` i32), `lastPingValueRaw` i32 @16, `lastPingValueDirect` i32 @20, `lastPingValueTick` i32 @24 |
+| Pong (19 B) | `id` i32 @0, `time` InstantData @4, `type` u8 @16 (`0` Raw, `1` Direct, `2` Tick), `packetQueueSize` i16 @17 |
+| NetworkTick (8 B) | `tickDurationMicros` i32 @0, `serverTick` i32 @4 |
+| SetClientId (4 B) | `clientId` i32 @0 |
+| ClientReady (1 B) | bool bits: bit0 `readyForChunks`, bit1 `readyForGameplay` |
+| ServerDisconnect | null bits u8 @0 (bit0 `reason`), `type` u8 @1 (`0` Disconnect, `1` Crash); variable block @2: [FormattedMessage](06-interface-pages.md#formattedmessage) `reason` |
+
+MouseInteraction layout: `?` (fixed block 44 B, variable block at 52).
 
 ## Joining and client stage
 
-The client uses stage-specific packet handlers. Display/UI packets, including
-`UpdatePointDisplay` (518) and the trigger-volume overlay packets, are only
-accepted while the client is in the Playing stage. Sending them during
-`SettingUp` is rejected by the client.
+The client accepts display/UI packets (including [[UpdatePointDisplay]] and
+the trigger-volume overlay packets) only in its Playing stage; they are
+rejected during `SettingUp`.
 
-`ClientReady` (105) is sent by the client during setup and reports chunk or
-gameplay readiness flags. It does not by itself mean the client has switched
-to Playing.
+Server join sequence:
 
-The server-side join sequence is:
+1. `JoinWorld` (104) starts the world transfer.
+2. The server waits for both: the spawn chunk loaded, and `ClientReady` with
+   `readyForChunks = 1, readyForGameplay = 0` (timeout 30 s, then the join fails).
+3. The server then sends, in order: `ViewRadius` (32, value = max view radius
+   in chunks x 32), `SetEntitySeed` (160), `SetClientId` (100),
+   `SetTimeDilation` (30), `UpdateFeatures` (31), sun settings, post-FX
+   settings, gameplay config, `SetUpdateRate` (29), time packets,
+   `UpdateWorldMapSettings` (240).
 
-```text
-JoinWorld (104)
-  -> client readiness
-  -> ViewRadius (32)
-  -> SetEntitySeed (160)
-  -> SetClientId (100)
-  -> SetTimeDilation (30)
-  -> UpdateFeatures (31)
-  -> world/client effects and gameplay config
-  -> SetUpdateRate (29)
-  -> time packets
-  -> UpdateWorldMapSettings (240)
-```
+`SetClientId` is sent only by this sequence, so it marks join completion.
+`UpdateWorldMapSettings` is also re-sent when map settings change.
+`ClientReady` alone does not mean the client is in Playing.
 
-`JoinWorld` starts the world transfer. The later packets are written from
-`World.onFinishPlayerJoining` after the client readiness future completes.
-`SetClientId` is only emitted from that join path; `UpdateWorldMapSettings`
-follows after world-map setup but may also be sent again when map settings
-change. In observed traffic, `SetClientId` is the first unambiguous
-join-complete marker.
+On `ClientReady` with `readyForGameplay = 1`, a player still waiting for
+client-ready is sent a teleport to its current position.
 
 ## DisplayDebug (114)
 
-Client-bound debug-shape draw request. Shapes are transient client-side
-primitives in world space. There is no server-side acknowledgement.
+Draws a transient debug shape in world space. No acknowledgement.
 
 ```packet
 bound: client
 summary: Draw a debug shape (sphere, cube, cylinder, etc.)
 columns: Offset | Field Name | Field Type | Null bit | Notes
 0  | Null bits           | `u8`        |        | bit0 `matrix`, bit1 `frustum_projection`
-1  | `shape`             | `u8`        |        | `DebugShape` value
+1  | `shape`             | `u8`        |        | `DebugShape`
 2  | `color`             | `Vector3f`  |        | 3 × `f32`
 14 | `time`              | `f32`       |        | Lifetime in seconds
 18 | `flags`             | `u8`        |        | `DebugFlags` bitmask
@@ -65,54 +67,30 @@ columns: Offset | Field Name | Field Type | Null bit | Notes
 27 | `frustum_projection` offset | `i32` |       | Relative to variable block at byte 31; `-1` absent
 ```
 
-Variable block starts at byte 31. Each present array is a VarInt element count
-followed by that many `f32` values.
+Each array: VarInt count + that many `f32`.
 
-`matrix` is 16 floats in row-major order, matching
-`Matrix4dUtil.asFloatData`:
+- `matrix`: 16 floats, row-major (`m00 m01 m02 m03 m10 ... m33`); translation
+  is in `m30 m31 m32`.
+- `frustum_projection`: also the shape-parameter array for Sector, Disc and
+  Donut.
 
-```text
-m00 m01 m02 m03
-m10 m11 m12 m13
-m20 m21 m22 m23
-m30 m31 m32 m33
-```
+`DebugShape`: `0` Sphere, `1` Cylinder, `2` Cone, `3` Cube, `4` Frustum,
+`5` Sector, `6` Disc, `7` Donut.
 
-A translation matrix therefore places the translation in `m30`, `m31`, `m32`
-(the last row in this layout). `frustum_projection` is also used as the
-shape-parameter array for disc, donut and sector shapes.
+`DebugFlags` (OR-combined; other bits undefined):
 
-`DebugShape`:
+| Bit | Name | Effect |
+|----:|------|--------|
+| 1 | Fade        | Fade out over lifetime |
+| 2 | NoWireframe | No wireframe outline |
+| 4 | NoSolid     | No solid surface (`4` alone = wireframe only) |
 
-```text
-0 Sphere
-1 Cylinder
-2 Cone
-3 Cube
-4 Frustum
-5 Sector
-6 Disc
-7 Donut
-```
-
-`DebugFlags`:
-
-```text
-1 Fade          fade the shape out over its lifetime
-2 NoWireframe   do not draw the wireframe outline
-4 NoSolid       do not draw the solid surface
-```
-
-Flags combine with bitwise OR, so `4` gives a wireframe-only cube.
-
-Observed client behavior: these shapes are depth-tested. Solid and wireframe
-shapes are hidden by blocks at distance. See [Markers and
-overlays](10-marker-overlays.md).
+Shapes are depth-tested (hidden behind blocks). See
+[Markers and overlays](10-marker-overlays.md).
 
 ## ClearDebugShapes (115)
 
-Client-bound request with an empty body. It clears the client's debug shapes;
-there is no per-shape removal packet.
+Empty body. Clears all debug shapes; there is no per-shape removal.
 
 ```packet
 bound: client

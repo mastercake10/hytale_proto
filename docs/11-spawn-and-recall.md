@@ -1,44 +1,37 @@
 # Spawn points and position recall
 
-How the server chooses a spawn position, and how it reacts when a player is
-moved into chunks that are not loaded.
-
 ## Spawn providers
 
-A world's spawn provider is an `ISpawnProvider` in the world config. It is
-queried per player:
+Each world has a spawn provider (world config; falls back to the world's
+default provider when unset). It resolves a spawn per player
+(`getSpawnPointAsync(world, uuid)`) and also exposes its full list
+(`getSpawnPoints()`).
 
-```text
-getSpawnPointAsync(world, uuid) -> Transform
-```
-
-Known implementations:
-
-- `GlobalSpawnProvider`: one fixed spawn point for every player.
-- `IndividualSpawnProvider`: a list of spawn points; the index is
-  `floorMod(hash(uuid), spawnPoints.length)`, so each player gets a stable but
-  possibly different point.
-- `FitToHeightMapSpawnProvider`: a configured position whose Y is adjusted to
-  the local heightmap before use.
+| Provider | Per-player spawn |
+|----------|------------------|
+| `GlobalSpawnProvider`         | One fixed point for everyone |
+| `IndividualSpawnProvider`     | `spawnPoints[floorMod(hashUuid(uuid), spawnPoints.length)]`: stable per player, may differ between players |
+| `FitToHeightMapSpawnProvider` | Wraps another provider. If the point's Y is `-2147483648` (unresolved), Y becomes heightmap height + 1 at that column (1 if no heightmap) |
 
 ## Spawn command
 
-`/spawn` (`SpawnCommand`) has an optional `spawnIndex` argument:
+| Command | Permission | Effect |
+|---------|------------|--------|
+| `/spawn`                    | `spawn.self`  | Teleport to the per-player spawn |
+| `/spawn <index>`            | `spawn.self`  | Teleport to `getSpawnPoints()[index]` |
+| `/spawn <player> [index]`   | `spawn.other` | Same, for another player |
+| `/spawn set [pos] [rot]`    | world editor group | Replace the provider with a `GlobalSpawnProvider` at `pos` (default: sender position) and `rot` (default: sender head rotation) |
+| `/spawn default`            | `hytale:Admin` group | Clear the provider; the world default applies |
 
-- With no index: `spawnProvider.getSpawnPointAsync(world, playerUuid)`.
-- With an index: `spawnProvider.getSpawnPoints()[index]` is used directly.
-  Out-of-range indices are rejected; a point whose Y equals
-  `-2147483648` (unresolved) is also rejected.
-
-The two forms can therefore disagree: the hashed per-player point and
-`spawnPoints[0]` are not necessarily the same location.
-
-`/spawn set` (world editor permission group) replaces the provider with a
-`GlobalSpawnProvider` positioned at the given coordinates. Subsequent
-`/spawn` calls for every player use that new single point.
+- An index out of range, or a point with unresolved Y (`-2147483648`), is
+  rejected.
+- `/spawn` and `/spawn <index>` can give different points: the per-player
+  point is hashed, the index is used directly.
+- Before teleporting, the player's current position and rotation are appended
+  to their teleport history.
 
 ## Spawn marker
 
-The world map spawn marker resolves the same provider and therefore shows the
-same position that `/spawn` would use for that player.
-
+The world map spawn marker uses the per-player spawn
+(`getSpawnPointAsync`, 10 s resolve timeout), i.e. the same point as `/spawn`
+without an index.
