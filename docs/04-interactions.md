@@ -425,7 +425,7 @@ without its own uses `*Empty_Interactions_Use`) and, for the step that acts on
 the block, the block's own Use root (`Open_Container` for chests). Like every
 root id these are renumbered at server start, so a recorded open chain only works
 again once its root ids are translated to the current tables. A chain with stale
-ids is not cancelled; the server just never opens the window.
+ids gets no window back (see [[#Root interaction resolution]]).
 
 ## Attacking an entity
 
