@@ -165,6 +165,10 @@ starts at byte 34.
 ```text
 0  null bits            u8   bit0 metadata present
 1  quantity             i32
+5  durability           f64  current; 0 with max 0 = item has no durability
+13 max durability       f64
+21 quality              i32
+25 override drop anim   bool
 26 item id offset       i32  relative to byte 34; item id is a VarString
 30 metadata offset      i32  relative to byte 34; valid when null bit 0 is set
 34 variable block
