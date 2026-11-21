@@ -440,10 +440,10 @@ The server queues an initial chain it cannot start yet
 cooldown block it). It cancels the chain only after
 `2 x average tick ping + 3000 ms` (`PacketHandler.getOperationTimeoutThreshold`).
 While that chain sits at the head of the queue, later initial chains from the
-same player are not started. Observed: an open sent about 2 s after a long
-position change was echoed with only its first entry and state 4
-(NotFinished), then cancelled about 6 s later. The same open sent again
-afterwards worked.
+same player are not started. Observed: an open sent while the player was about
+200 blocks above the chest (out of reach) was echoed with only its first entry
+and state 4 (NotFinished), then cancelled about 6 s later. Opens sent from
+within reach of the chest worked.
 
 Open_Container keeps one window per player per container
 (`windows.putIfAbsent(uuid, ...)`). An open while that player's window on the
