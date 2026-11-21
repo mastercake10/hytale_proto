@@ -427,6 +427,28 @@ root id these are renumbered at server start, so a recorded open chain only work
 again once its root ids are translated to the current tables. A chain with stale
 ids gets no window back (see [[#Root interaction resolution]]).
 
+Observed (one server build, chest `Furniture_Crude_Chest_Large`): the open chain
+has the **same shape for every held item**, including block stacks, tools, a
+broken tool (durability 0) and an empty slot. It is one initial packet, state 0,
+with four entries: `(op 0, item Use root)`, `(op 1, item Use root, block_position,
+block_face)`, `(op 0, Open_Container, block_position, block_face)`,
+`(op 2, item Use root)`. The server answers with `OpenWindow` (200), then echoes
+the chain with state 0. Closing the window sends `CloseWindow` (202).
+
+The server queues an initial chain it cannot start yet
+(`InteractionManager.syncStart` returns false when interaction rules or a
+cooldown block it). It cancels the chain only after
+`2 x average tick ping + 3000 ms` (`PacketHandler.getOperationTimeoutThreshold`).
+While that chain sits at the head of the queue, later initial chains from the
+same player are not started. Observed: an open sent about 2 s after a long
+position change was echoed with only its first entry and state 4
+(NotFinished), then cancelled about 6 s later. The same open sent again
+afterwards worked.
+
+Open_Container keeps one window per player per container
+(`windows.putIfAbsent(uuid, ...)`). An open while that player's window on the
+same block is still registered does nothing.
+
 ## Attacking an entity
 
 A melee attack is the item's **Primary** chain with the target in the chain
