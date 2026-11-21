@@ -162,3 +162,24 @@ summary: Block damage/progress display
 - The server may resend chunks after a new session or a major world update.
 - Height data can arrive before or after the corresponding block sections.
 - Caching height columns by chunk coordinate avoids repeated decompression.
+
+## Block type ids
+
+Block ids in chunk sections and block updates index the block-type list the
+server sends at join in `UpdateBlockTypes` (zstd-compressed, same map header as
+the other asset packets: `u8 nullBits`, `u8 UpdateType`, `i32 maxId`, `VarInt`
+count, then `{i32 id, BlockType}` entries with no length prefix).
+
+The ids are assigned when the server loads its assets: two servers running the
+same game version use different numbering (the same id was `Rock_Stone` on one
+and a plant block on another). Resolve names from the current join's list, never
+from a table saved on another server.
+
+`BlockType` layout used for names: 4 null-bit bytes, a 177-byte fixed block,
+then 25 `i32` variable-field offsets, variable block at `+277`. The offset at
+`+177` is the `item` string, at `+181` the block `name`. When present, `item` is
+the first variable field (offset `0`), so `name` sits right after it. State
+variants have their own id and a name like `*<Item>_State_Definitions_<State>`
+while sharing the base `item`. Breaking behaviour lives in the item asset's
+`BlockType.Gathering.Breaking.GatherType` (`Rocks`, `Woods`, `Soils`, ...), and
+a tool's effect on it in its `Tool.Specs[].Power` for that gather type.
