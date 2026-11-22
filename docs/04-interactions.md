@@ -204,13 +204,21 @@ Applies to block interactions (`SimpleBlockInteraction`, incl. container open,
 place, break):
 
 - Distance: server-side player position + eye height → block centre.
-- Limit: held item's `useDistance` for the current game mode + 2 blocks.
+- Limit: held item's `UseDistance` for the current game mode + 2 blocks.
+  Default `UseDistance` (no `InteractionConfig` on the item): Adventure 5,
+  Creative 6; game modes missing from an item's map use 1.
 - Creative: also limited by `creativeInteractionDistance` from
   `SyncPlayerPreferences` (116), `i32` at offset `+8`, clamped to `0..128`.
 - `attacker_pos`, `attacker_rot`, `raycast_hit`, `raycast_normal` are not used.
 
 An out-of-reach chain is not started; it is answered with state 4 and cancelled
 at the timeout.
+
+## Item pickup
+
+Dropped item entities are picked up by a player within the item's pickup
+radius (item `ItemEntityConfig.PickupRadius`, else the world gameplay config;
+default 1.75 blocks) after a pickup delay (default 0.5 s).
 
 ## Queueing and timeouts
 
