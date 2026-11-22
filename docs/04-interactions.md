@@ -217,6 +217,16 @@ at the timeout.
 - Chains are processed from a per-player queue. An initial chain that rules or a
   cooldown prevent from starting stays queued; while it is at the head, later
   initial chains of that player are not started.
+- Cooldown: keyed by the root's id (or the cooldown's `Id`, shared between
+  roots). Without a cooldown on the root or its game-mode settings, `Primary`,
+  `Secondary`, `Use`, `Ability1-4`, `Pick`, `SwapFrom/To` etc. use **0.35 s**;
+  collision, projectile, pickup, `OnBreak*`, `GameModeSwap`,
+  `EntityStatEffect` use 0. Repeated swings of one root therefore start at
+  most every 0.35 s, however fast the client sends them; the surplus waits in
+  the queue.
+- Default blocking: `Primary`, `Secondary`, `Use`, `Ability1-4`, `Pick` are
+  blocked by any running chain of those types; `SwapFrom/To` by each other;
+  `Held`, `HeldOffhand`, `Equipped`, `Dodge`, `GameModeSwap` by their own type.
 - Timeout = `2 × average tick ping + 3000 ms`. Cancelled with
   [[CancelInteractionChain]] when:
   - a queued chain waits longer than that;
