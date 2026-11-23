@@ -113,3 +113,18 @@ Empty body. Clears all debug shapes; there is no per-shape removal.
 bound: client
 summary: Clear all client debug shapes
 ```
+
+## Player identity
+
+Entity records in `EntityUpdates` (161) carry only the network id; no
+component holds the player's UUID. The `Nameplate` component (type 0) holds the
+displayed name as `text`. UUIDs travel in:
+
+- the server player list: `AddToServerPlayerList` (224) /
+  `UpdateServerPlayerList` (226) entries hold `uuid`, `username`, `worldUuid`,
+  `ping`; `RemoveFromServerPlayerList` (225) removes by UUID;
+- world map player markers (`PlayerMarkerComponent`: `playerId` UUID), only
+  when the server shows players on the map.
+
+Matching a player entity to its UUID therefore goes through the name.
+
