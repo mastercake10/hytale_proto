@@ -373,6 +373,12 @@ Breaking rules:
 - Tool `BreakShape`: damages every block the shape selects around the target.
 - Creative: no damage step; selected blocks are removed.
 - Damage per swing: tool spec for the block's gather type.
+- Server-side failures (the `BreakBlock` entry comes back Failed, no damage):
+  target section unloaded, target block id 0 or 1, or the distance check
+  (`InteractionValidation.canEntityInteractWithBlock`) fails.
+- If the target cell has a non-zero **filler** value (part of a multi-cell
+  block), the server retargets the chain to the base cell; the echoed
+  `data.block_position` then differs from the one sent.
 
 ## Placing a block
 
