@@ -62,6 +62,13 @@ the same format: a `u8` palette type, then entries, then the per-block array.
 The array holds internal ids indexed by the local index; the palette maps them
 to external ids (block type id, filler, rotation).
 
+**Filler** (also in `ServerSetBlock`/`SetBlockCmd`): multi-cell blocks (double
+chests, doors, beds, …) occupy several cells; the block's base cell has filler
+`0`, every other cell stores its offset from the base, packed
+`(dx & 31) | (dz & 31) << 5 | (dy & 31) << 10`, each 5-bit signed.
+Base = cell − offset. The server resolves an interaction on a filler cell to
+the base cell, so both halves of a double chest open the same container.
+
 ## ServerSetBlock (140)
 
 One block update. Fixed size 19 bytes.
