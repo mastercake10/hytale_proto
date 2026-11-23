@@ -31,6 +31,23 @@ The client accepts display/UI packets (including [[UpdatePointDisplay]] and
 the trigger-volume overlay packets) only in its Playing stage; they are
 rejected during `SettingUp`.
 
+Client side of the setup stage (after authentication):
+
+1. Server sends `WorldSettings` (20) and `ServerInfo` (223).
+2. Client sends `RequestAssets` (23), a compressed packet (zstd body) holding
+   the list of common assets it lacks; an empty, non-null list is valid. A
+   second `RequestAssets` is a protocol error.
+3. Client may send `ViewRadius` (32, `i32` blocks; the server uses
+   `ceil(value / 32)` chunks).
+4. Server sends the asset registries, translations, `WorldLoadProgress` and
+   `WorldLoadFinished` (22).
+5. Client sends `SetupFinalize` (33, empty). Before `RequestAssets` it is a
+   protocol error.
+
+Every setup stage and the play stage have server-side timeouts; in play, a
+client that sends nothing is disconnected, so `Pong` replies (one per
+`PongType`) keep an otherwise idle connection alive.
+
 Server join sequence:
 
 1. `JoinWorld` (104) starts the world transfer.
