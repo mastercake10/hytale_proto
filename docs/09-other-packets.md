@@ -114,17 +114,66 @@ bound: client
 summary: Clear all client debug shapes
 ```
 
+## Server player list
+
+The tab list. A UUID is 16 bytes: most significant half, then least
+significant half, each a **big-endian** `i64` (unlike the little-endian
+integers elsewhere).
+
+### AddToServerPlayerList (224)
+
+```packet
+bound: client
+summary: Add players to the server player list
+columns: Offset | Field Name | Field Type | Notes
+0 | `players` | ServerPlayerListPlayer[] | `VarInt` count + entries
+```
+
+`ServerPlayerListPlayer`, fixed block 42 bytes, variable block at 42:
+
+| Offset | Field Name | Field Type | Null bit | Notes |
+|-------:|------------|------------|----------|-------|
+| 0  | Null bits         | `u8`     |      | bit0 `worldUuid`, bit1 `livesRemaining`, bit2 `username` |
+| 1  | `uuid`            | UUID     |      | Player UUID |
+| 17 | `worldUuid`       | UUID     | bit0 | Zero-filled when absent |
+| 33 | `ping`            | `i32`    |      | |
+| 37 | `spectating`      | `bool`   |      | |
+| 38 | `livesRemaining`  | `i32`    | bit1 | Zero-filled when absent |
+| 42 | `username`        | `VarString` | bit2 | Only variable field, starts at 42 |
+
+### RemoveFromServerPlayerList (225)
+
+```packet
+bound: client
+summary: Remove players from the server player list
+columns: Offset | Field Name | Field Type | Notes
+0 | `players` | UUID[] | `VarInt` count + 16-byte UUIDs
+```
+
+### UpdateServerPlayerList (226)
+
+```packet
+bound: client
+summary: Move listed players to another world
+columns: Offset | Field Name | Field Type | Notes
+0 | `players` | ServerPlayerListUpdate[] | `VarInt` count + 32-byte entries: `uuid` UUID @0, `worldUuid` UUID @16
+```
+
+### UpdateServerPlayerListPing (227)
+
+```packet
+bound: client
+summary: Ping values of listed players
+columns: Offset | Field Name | Field Type | Notes
+0 | `players` | Map<UUID, i32> | `VarInt` count + entries: UUID (16 B), `i32` ping
+```
+
 ## Player identity
 
 Entity records in `EntityUpdates` (161) carry only the network id; no
 component holds the player's UUID. The `Nameplate` component (type 0) holds the
-displayed name as `text`. UUIDs travel in:
-
-- the server player list: `AddToServerPlayerList` (224) /
-  `UpdateServerPlayerList` (226) entries hold `uuid`, `username`, `worldUuid`,
-  `ping`; `RemoveFromServerPlayerList` (225) removes by UUID;
-- world map player markers (`PlayerMarkerComponent`: `playerId` UUID), only
-  when the server shows players on the map.
-
-Matching a player entity to its UUID therefore goes through the name.
-
+displayed name as `text`. UUID and username appear together only in
+[[AddToServerPlayerList]] entries. World map player markers
+(`PlayerMarkerComponent`) carry `playerId` (UUID) when the server shows
+players on the map. Matching a player entity to its UUID therefore goes
+through the name.
