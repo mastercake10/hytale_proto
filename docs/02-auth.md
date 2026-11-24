@@ -26,6 +26,12 @@ S→C ConnectAccept (14)           password challenge included if required
     then password exchange as above
 ```
 
+Observed client behaviour (release client 0.7.7, which sends an identity
+token): on `RequestInsecurePlayerOptions` it still answers with
+`InsecurePlayerOptions`, then aborts the connection with "Server requires
+development mode which is not supported in this build". Release clients can
+only join servers that use the authenticated flow.
+
 After the password step (or immediately, without a challenge) the server
 moves to world setup. A packet that does not fit the current step is a
 disconnect.
