@@ -177,3 +177,20 @@ Variable block at byte 34; offsets relative to it.
 30 metadata offset       i32   VarString; valid when bit0 set
 34 variable block
 ```
+
+### Durability rules (server)
+
+- Durability is a `double`; losses are fractional and applied exactly, no
+  rounding or accumulation step. It is clamped to `[0, max]`.
+- `max_durability <= 0` means unbreakable. `durability == 0` means broken; a
+  broken item stays in its slot.
+- A tool loses durability once per hit that damages a block (per swing for
+  break shapes in `PerSwing` mode, per block in `PerBlock` mode), not per
+  broken block. The amount is `DurabilityLossOnHit` from the tool's
+  `DurabilityLossBlockTypes` entry matching the block's type or block set,
+  else the item's own `DurabilityLossOnHit`. Example: base pickaxes lose
+  `0.25` per hit on the `Stone`, `Rock`, `Ores`, `Soil` and `Wood` sets.
+- A broken tool still breaks blocks: its tool power is multiplied by
+  `1 - BrokenPenalties.Tool` from the gameplay config (default config `0.75`,
+  so 25 % power). It loses no further durability.
+- Creative mode applies no durability loss and no broken penalty.
