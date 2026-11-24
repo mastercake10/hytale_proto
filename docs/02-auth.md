@@ -182,6 +182,22 @@ The response must be computed against `new_challenge`.
 - `server_authorization_grant` is required (mutual auth); without it the
   client is disconnected.
 
+## Game sessions (session service)
+
+Observed behaviour of the session service (`sessions.hytale.com`):
+
+- A game session (`game-session/new`) returns a `sessionToken` and an
+  `identityToken`; the identity token is a JWT valid for 1 hour.
+- Only one game session per profile is active. Creating a new one invalidates
+  the previous `sessionToken`: calls with it are answered `403 invalid token`.
+- The identity token of an invalidated session is still accepted as the
+  target of `server-join/auth-grant` (it is checked as a JWT), but the client
+  cannot redeem the grant (`server-join/auth-token` needs its own valid
+  `sessionToken`). A join therefore needs the session that created the
+  identity token to still be active.
+- A player who has already joined is not disconnected when its session is
+  invalidated afterwards.
+
 ## Timeouts
 
 Per-stage limits; the client is disconnected when a stage does not complete in
