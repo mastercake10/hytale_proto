@@ -416,19 +416,30 @@ position. Damage targets come only from `hit_entities` of the `Select` entries
 ([SelectedHitEntity](#selectedhitentity)); `data.entity_id` is not used. A chain
 without `hit_entities` completes and does nothing.
 
-Entity positions come from `EntityUpdates` (161), a stream of records:
+Entity positions come from `EntityUpdates` (161):
 
 | Part | Layout |
 |------|--------|
-| header | `u8` null bits, `i32 networkId`, two `i32` offsets (removed, updates) relative to header + 13 |
-| removed | `VarInt` count + `count × i32` network ids |
-| updates | `VarInt` count + components |
+| packet header | `u8` null bits (bit 0 removed, bit 1 updates), `i32` removed offset, `i32` updates offset; variable block at 9 |
+| removed | `VarInt` count + `count × i32` network ids the client must drop |
+| updates | `VarInt` count + `EntityUpdate` records |
+
+`EntityUpdate`: `u8` null bits, `i32 networkId`, `i32` removed offset, `i32`
+updates offset; variable block at 13. Its `removed` is `VarInt` count +
+`count × u8` **component types** removed from that entity (not entity ids);
+its `updates` is `VarInt` count + components.
 
 Component = `VarInt typeId` + body, **no length prefix** (needs a size table).
 Fixed sizes: `Block` (6) 8, `Transform` (9) 49 (null bits, position 3 × `f64`,
 rotation 3 × `f32`), `MovementStates` (10) 4, `Prediction` (20) 16, `Mounted`
 (22) 47; several flag components are 0 bytes. `NewSpawn` (23) is empty; the
 record's network id is the new entity.
+
+An id in the packet-level `removed` array means the entity left the player's
+view: out of view range, despawned, or dead. A dead NPC stays (corpse, death
+animation) until its role's `DeathAnimationTime` has passed
+(`DeferredCorpseRemoval`), then it is removed. An entity that comes back into
+view reuses its network id.
 
 ## Teleporter blocks
 
