@@ -439,7 +439,10 @@ Fixed sizes: `Block` (6) 8, `Transform` (9) 49 (`ModelTransform`: null bits
 1 position / 2 body / 4 look; position 3 × `f64` @1, body orientation
 yaw/pitch/roll 3 × `f32` @25, look orientation 3 × `f32` @37; absent parts
 zero-filled), `MovementStates` (10) 4, `Prediction` (20) 16, `Mounted`
-(22) 47; several flag components are 0 bytes. `NewSpawn` (23) is empty; the
+(22) 47; several flag components are 0 bytes. `Item` (5), on dropped-item
+entities: `f32` entity scale + `ItemWithAllMetadata` (34 fixed bytes, then the
+item id string and, with null bit 1, the metadata string; see
+[ItemWithAllMetadata](07-inventory-slots.md#itemwithallmetadata)). `NewSpawn` (23) is empty; the
 record's network id is the new entity.
 
 `ActiveAnimations` (24) is variable-sized: `VarInt` count, then
