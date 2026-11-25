@@ -23,7 +23,7 @@ NAV = [
     ("Start", [("index", "Overview"), ("framing", "Framing"), ("auth", "Auth"), ("glossary", "Glossary")]),
     ("Player", [("movement", "Movement"), ("spawn-and-recall", "Spawn"), ("interactions", "Interactions"),
                 ("inventory-slots", "Inventory"), ("interface-pages", "Interface")]),
-    ("World", [("world-chunks", "Chunks"), ("marker-overlays", "Markers")]),
+    ("World", [("world-chunks", "Chunks"), ("marker-overlays", "Markers"), ("npc-detection", "NPCs")]),
     ("Reference", [("packets", "Packet index"), ("other-packets", "Other packets")]),
 ]
 
