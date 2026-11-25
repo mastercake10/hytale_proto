@@ -66,6 +66,38 @@ Server join sequence:
 On `ClientReady` with `readyForGameplay = 1`, a player still waiting for
 client-ready is sent a teleport to its current position.
 
+## DamageInfo (112)
+
+Sent to a player that took damage from an entity (hit-direction indicator).
+Not compressed. Fixed block 29 bytes, variable block starts at byte 29.
+
+```packet
+bound: client
+summary: The player was damaged by an entity
+columns: Offset | Field Name | Field Type | Null bit | Notes
+0  | Null bits                | `u8`       |      | bit0 `damage_source_position`, bit1 `damage_cause`
+1  | `damage_source_position` | `Vector3d` | bit0 | 3 × `f64` (x, y, z); zero-filled when absent
+25 | `damage_amount`          | `f32`      |      | Damage after reductions
+29 | `damage_cause`           | `DamageCause` | bit1 | Inline in the variable block (no offset slot)
+```
+
+`DamageCause` (fixed 1, variable block at its byte 9): null bits `u8`
+(bit0 `id`, bit1 `damage_text_color`), `id` offset `i32` @1,
+`damage_text_color` offset `i32` @5 (relative to its byte 9, `-1` absent),
+then VarInt-length UTF-8 strings. `id` is a DamageCause asset id
+(`Server/Entity/Damage/*.json`: `Physical`, `Projectile`, `Slashing`,
+`Fire`, `Poison`, `Fall`, `Drowning`, ...).
+
+Server behaviour (`DamageSystems.PlayerHitIndicators`): sent only when the
+damage source is an entity (`Damage.EntitySource`, which includes
+`ProjectileSource` and `EntityEffectSource`) whose ref is still valid and has
+a transform, and the damage has a cause. The position is the **source
+entity's** position at that moment: for a projectile it is the shooter, for a
+DoT effect the entity that applied it. The packet carries **no network id**;
+the attacker can only be matched by position against tracked entities.
+Environment damage (fall, drowning, suffocation, blocks) sends no
+`DamageInfo`.
+
 ## DisplayDebug (114)
 
 Draws a transient debug shape in world space. No acknowledgement.
