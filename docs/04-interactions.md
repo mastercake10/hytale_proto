@@ -214,6 +214,11 @@ place, break):
 An out-of-reach chain is not started; it is answered with state 4 and cancelled
 at the timeout.
 
+Entity damage (`DamageEntityInteraction`) uses the same limit, measured from
+the player's eye (position + eye height) to the target's **feet** position
+(`canPlayerInteractWithEntity`). It is checked when the server runs the damage
+entry, against the server-side player position at that moment.
+
 ## Item pickup
 
 Dropped item entities are picked up by a player within the item's pickup
