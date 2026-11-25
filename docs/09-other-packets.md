@@ -66,6 +66,33 @@ Server join sequence:
 On `ClientReady` with `readyForGameplay = 1`, a player still waiting for
 client-ready is sent a teleport to its current position.
 
+## Entity stats (Health, Oxygen, ...)
+
+`UpdateEntityStatTypes` (72), zstd: stat types keyed by `i32`. Each
+`EntityStatType`: `u8` null bits, `value f32` @1, `min f32` @5, `max f32` @9,
+reset behaviour `u8` @13, `bool` @14, three `i32` offsets @15/@19/@23,
+variable block at 27 (the stat id string first). Player `Health` default:
+initial 100, min 0, max 100 (`Server/Entity/Stats/Health.json`). Keys are
+assigned per server start.
+
+Values arrive in `EntityUpdates` (161) as component `EntityStats` (8):
+`VarInt` count, then per stat `i32` key + `VarInt` count + `EntityStatUpdate`s.
+
+`EntityStatUpdate` (21 fixed bytes + variable block):
+
+| Offset | Field |
+|-------:|-------|
+| 0 | `u8` null bits: 1 modifier, 2 modifiers, 4 modifierKey |
+| 1 | `op u8`: Init 0, Remove 1, PutModifier 2, RemoveModifier 3, Add 4, Set 5, Minimize 6, Maximize 7, Reset 8, Min 9, Max 10 |
+| 2 | `predictable bool` |
+| 3 | `value f32` |
+| 7 | `Modifier` (6 bytes: target `u8`, calculation type `u8`, amount `f32`) |
+| 13 | `i32` modifiers offset |
+| 17 | `i32` modifierKey offset |
+| 21 | variable block: modifiers map (`VarInt` count, per entry `VarInt`-length key + 6-byte `Modifier`), then the modifierKey string |
+
+One stat can carry several updates in one packet; they apply in order.
+
 ## DamageInfo (112)
 
 Sent to a player that took damage from an entity (hit-direction indicator).
