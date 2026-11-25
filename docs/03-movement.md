@@ -35,6 +35,25 @@ Server handling:
   `mounted_to` matches the server's mount id for the player.
 - `absolute_position` takes precedence; `relative_position` is used only when
   no absolute position is sent.
+- `movement_states` replaces the server's whole state set; when absent the
+  last received states stay in effect. A zero `relative_position` still
+  queues a (null) relative move when `movement_states` is present.
+
+### MovementStates (4 bytes)
+
+| Byte | Bits (1, 2, 4, 8, 16, 32, 64, 128) |
+|------|-------------------------------------|
+| 0 | idle, horizontalIdle, jumping, flying, walking, running, sprinting, crouching |
+| 1 | forcedCrouching, falling, fallingFar, climbing, inFluid, swimming, swimJumping, onGround |
+| 2 | mantling, sliding, mounting, rolling, sitting, gliding, sleeping, (unused) |
+| 3 | extraJumpsUsed (`u8`) |
+
+Server-side effects of `crouching` (also `sliding`; bounding box also
+`forcedCrouching`): the model's crouch bounding box is used and the eye height
+drops by the model's `CrouchOffset` (player: 1.6 - 0.4 = 1.2). The eye height
+feeds the interaction-range check (eye to target <= `UseDistance` + 2).
+No movement-speed validation reads it. NPC hearing ignores crouching players
+(see [NPC detection](12-npc-detection.md)).
 
 ## ClientTeleport (109)
 
