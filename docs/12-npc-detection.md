@@ -59,3 +59,32 @@ Any one triggers:
 | Trork hunter, guard | ranged | 20, all directions, needs sight | – | 2 | 12 |
 
 All attacks need line of sight within attack distance.
+
+## What the client sees when an NPC aggroes
+
+There is no target or attitude field on the wire. The visible traces of the
+role state machine are:
+
+1. **Status animation cue** - [PlayAnimation (162)](09-other-packets.md#playanimation-162)
+   with slot 1 (Status) and `animationId` `Alerted` when a role enters its
+   `Alerted` state (`Component_Instruction_Generic_Alerted`, Predator,
+   Skeleton, Trork, Goblin, Feran, Scarak, Kweebec templates; ~75 role files).
+   A few roles use other names: `Angry`, `Threaten`, `Taunt` (Status),
+   `Roar` / `Alerted` (Action, e.g. Void Spectre).
+2. **Head turns** to the target (`HeadMotion: Watch` - Transform look
+   orientation) during a 2-3 s `WaitTime`.
+3. **Chase** - Transform position updates moving toward the target.
+
+`Alerted` alone does **not** mean hostile: `Template_Livestock`,
+`Template_Animal_Neutral` and prey templates play the same Status `Alerted`
+when they notice a player they treat as a threat, then switch to Flee/Panic
+(moving away). Predators switch to Chase (moving toward the target). The cue
+also does not name the target; another player or NPC may be the one noticed.
+Observed rule of thumb: `Alerted` followed within a few seconds by the NPC
+closing distance to the player is an aggro on that player. Roles that skip the
+`Alerted` state (e.g. switch straight to Combat after being damaged) send no
+cue; the first sign is then movement or [DamageInfo (112)](09-other-packets.md#damageinfo-112).
+
+Clearing a slot is a PlayAnimation with `animationId` absent
+(`Component_Instruction_Clear_Status_Animation`). Ordinary idles in the Status
+slot include `Eat`, `Yawn`, `Sleep`, `Laydown`, `Wake`, `Curious`, `Sit`.

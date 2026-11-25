@@ -435,10 +435,22 @@ updates offset; variable block at 13. Its `removed` is `VarInt` count +
 its `updates` is `VarInt` count + components.
 
 Component = `VarInt typeId` + body, **no length prefix** (needs a size table).
-Fixed sizes: `Block` (6) 8, `Transform` (9) 49 (null bits, position 3 × `f64`,
-rotation 3 × `f32`), `MovementStates` (10) 4, `Prediction` (20) 16, `Mounted`
+Fixed sizes: `Block` (6) 8, `Transform` (9) 49 (`ModelTransform`: null bits
+1 position / 2 body / 4 look; position 3 × `f64` @1, body orientation
+yaw/pitch/roll 3 × `f32` @25, look orientation 3 × `f32` @37; absent parts
+zero-filled), `MovementStates` (10) 4, `Prediction` (20) 16, `Mounted`
 (22) 47; several flag components are 0 bytes. `NewSpawn` (23) is empty; the
 record's network id is the new entity.
+
+`ActiveAnimations` (24) is variable-sized: `VarInt` count, then
+`ceil(count / 8)` presence bytes (bit *i* of byte *i/8* set = slot *i* present),
+then one `VarString` per present slot, in slot order. Slots are
+`AnimationSlot`: 0 Movement, 1 Status, 2 Action, 3 Face, 4 Emote,
+5 ServerAction (the server always sends 6). Example: Status = `Alerted` only →
+`06 02 07 41 6C 65 72 74 65 64`. The server queues this component only when the
+entity becomes visible to a player (snapshot); later animation changes are sent
+as [PlayAnimation (162)](09-other-packets.md#playanimation-162), not as
+component updates.
 
 An id in the packet-level `removed` array means the entity left the player's
 view: out of view range, despawned, or dead. A dead NPC stays (corpse, death

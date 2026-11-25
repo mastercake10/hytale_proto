@@ -98,6 +98,32 @@ the attacker can only be matched by position against tracked entities.
 Environment damage (fall, drowning, suffocation, blocks) sends no
 `DamageInfo`.
 
+## PlayAnimation (162)
+
+Starts or stops one animation slot of an entity. Not compressed. Fixed block
+6 bytes, variable block starts at byte 14.
+
+```packet
+bound: client
+summary: Play or stop an animation in one slot of an entity
+columns: Offset | Field Name | Field Type | Null bit | Notes
+0  | Null bits          | `u8`          |      | bit0 `itemAnimationsId`, bit1 `animationId`
+1  | `entityId`         | `i32`         |      | Network id
+5  | `slot`             | `u8`          |      | `AnimationSlot`: 0 Movement, 1 Status, 2 Action, 3 Face, 4 Emote, 5 ServerAction
+6  | `itemAnimationsId` | `String`      | bit0 | Offset `i32` into the variable block, `-1` absent
+10 | `animationId`      | `String`      | bit1 | Offset `i32`, `-1` absent = stop the slot
+```
+
+Strings are VarInt-length UTF-8 in the variable block (offsets relative to
+byte 14). Sent by `AnimationUtils.playAnimation` / `stopAnimation` to every
+player that can see the entity (the entity itself excluded unless
+`sendToSelf`). Item/weapon swings carry `itemAnimationsId`; NPC role
+animations (`NPCEntity.playAnimation`) never do. NPCs re-send a non-Action
+slot only when its animation changes (or when forced); Action is always
+re-sent. The server-side `ActiveAnimationComponent` is updated at the same time
+but is only sent as a snapshot to new viewers (see
+[ActiveAnimations](04-interactions.md#attacking-an-entity)).
+
 ## DisplayDebug (114)
 
 Draws a transient debug shape in world space. No acknowledgement.
